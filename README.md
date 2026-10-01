@@ -68,6 +68,8 @@ Requires g++ with C++17 and Linux (`epoll`). On Windows, use WSL.
 
 ## Architecture
 
+More diagrams (layers, classes, every flow as a sequence diagram, state machines, the skip list) are in [docs/5-diagrams.md](docs/5-diagrams.md).
+
 ```
                  ┌──────────────────────── mini-redis-server (1 thread) ───────────────────────┐
  client ──TCP──▶ │ epoll loop ─▶ Connection.input ─▶ RESP parser ─▶ command table ─▶ Database   │
@@ -102,12 +104,17 @@ Requires g++ with C++17 and Linux (`epoll`). On Windows, use WSL.
 
 ## Documentation
 
-The `docs/` folder explains the project in layers:
+The [`docs/`](docs/README.md) folder explains the project in layers. **Start with the [learning path](docs/0-learning-path.md).**
 
+0. [Learning path](docs/0-learning-path.md): what to study in which order, experiments to run and break, checkpoint questions, exercises.
 1. [Basics](docs/1-basics.md): the concepts from zero (sockets, RESP, event loops, persistence, skip lists).
 2. [Architecture](docs/2-architecture.md): how the pieces fit, every request flow, and every design decision with its trade-offs.
 3. [Code walkthrough](docs/3-walkthrough/): every file explained line by line.
 4. [Presenting it](docs/4-presenting.md): pitch, resume bullets, interview questions and answers.
+5. [Diagrams](docs/5-diagrams.md): 24 architecture, sequence, state and data-structure diagrams (Mermaid).
+6. [C++ concepts](docs/6-cpp-concepts.md): every C++ and POSIX feature used, in plain language, with where and why.
+7. [Defense guide](docs/7-defense-guide.md): measured facts, claim-to-evidence map, alternatives considered, known issues and fixes.
+8. [Reference](docs/8-reference.md): commands, AOF rules, limits, error messages, glossary.
 
 ## Possible next steps
 
