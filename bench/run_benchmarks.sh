@@ -25,7 +25,9 @@ rm -f "$OUT_DIR"/*.csv
 
 wait_for_port() {
     for _ in $(seq 1 50); do
-        if redis-benchmark -p "$1" -n 1 -t ping_mbulk -q > /dev/null 2>&1; then return 0; fi
+        # redis-cli fails fast while the port is closed. (redis-benchmark does
+        # not: it spins forever on a refused connection, hanging this loop.)
+        if redis-cli -p "$1" PING > /dev/null 2>&1; then return 0; fi
         sleep 0.1
     done
     echo "server on port $1 did not start"; exit 1
