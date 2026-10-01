@@ -4,11 +4,14 @@
 
 > **mini-redis**: Redis-compatible in-memory data store · C++17, Linux, epoll · [github link]
 > - Built a single-threaded, **epoll-based** server with an incremental, pipelining-aware **RESP** parser. It's compatible with the official `redis-cli` and `redis-benchmark`, and supports 53 commands across strings, lists, hashes and sorted sets.
-> - Implemented sorted sets with a **span-augmented skip list** (O(log n) rank/range, ~6000× faster ZRANK than a `std::set` walk at 200k members). Added lazy plus index-driven **active TTL expiry**.
-> - Added **AOF persistence** with configurable fsync, crash-truncation recovery and atomic log compaction (temp file + `rename`). Tested with 31 unit tests (including randomized model-based tests) and 34 end-to-end checks under **ASan/UBSan** in GitHub Actions CI.
+> - Implemented sorted sets with a **span-augmented skip list** (O(log n) rank/range, **over 3000× faster** ZRANK than a `std::set` walk at 200k members). Added lazy plus index-driven **active TTL expiry**.
+> - Added **AOF persistence** with configurable fsync, crash-truncation recovery and atomic log compaction (temp file + `rename`). Tested with 32 unit tests (including randomized model-based tests) and 35 end-to-end checks under **ASan/UBSan** in GitHub Actions CI.
+> - **Cut memory per key ~30×** (5 KB → 175 B, within 2× of real Redis) after measuring it: a 5 KB random generator inside the largest `std::variant` alternative was inflating every key. Added a regression test.
 
 Once you've run `make benchmark` (after `sudo apt install redis-tools redis-server`), add a throughput line with **your own measured numbers**, e.g.:
 > - Reached **X k ops/s** (Y% of real Redis) at 50 clients, and **Z k ops/s** with pipelining, measured with `redis-benchmark`.
+
+For reference, on a 4-core cloud VM it measured about **55 k ops/s** at 50 clients without pipelining, and **635-920 k ops/s** with pipeline 16. That's 74-137% of Redis for one hot key, and ~67-87% of Redis with ~630 000 distinct keys. Re-measure on your own machine and quote those numbers, and if you quote the comparison, say which test it was (see [Layer 7](7-defense-guide.md#throughput-vs-real-redis-redis-benchmark)).
 
 Only put numbers you measured yourself on the resume.
 
@@ -78,7 +81,7 @@ A randomized model test: 20 000 random adds, updates and removes with many dupli
 One key, one type. With separate maps per type (my first version), a key could be a string and a list at the same time. The variant makes that impossible, gives TYPE and WRONGTYPE for free, and needs one hash lookup per command.
 
 **Why `std::deque` for lists?**
-LPUSH/LPOP need O(1) at the front. `vector::insert(begin())` shifts every element. My benchmark shows ~1000× slower at 50k elements. Redis uses a "quicklist" (a linked list of compact arrays) for memory efficiency.
+LPUSH/LPOP need O(1) at the front. `vector::insert(begin())` shifts every element. My benchmark shows a vector is over 1000× slower at 50k elements. Redis uses a "quicklist" (a linked list of compact arrays) for memory efficiency.
 
 **How do you shut down safely?**
 The SIGINT/SIGTERM handler only sets a `volatile sig_atomic_t` flag. That's all that's safe in a handler. `epoll_wait` returns EINTR (no SA_RESTART), the loop sees the flag, and then shutdown flushes and fsyncs the AOF. SIGPIPE is ignored so a disconnecting client can't kill the server.

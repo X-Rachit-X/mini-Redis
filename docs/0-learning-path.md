@@ -195,14 +195,14 @@ Study in this order: each module only depends on the ones before it. Each one ha
   #include "database.h"
   int main() { printf("Value=%zu Entry=%zu\n", sizeof(Value), sizeof(Entry)); }
   ```
-  You'll get about 5088. Now read [known issue #1](7-defense-guide.md#known-issue-1-every-key-costs-about-5-kb). This is the most valuable thing to *discover yourself* in the whole project.
+  You'll get `Value=88 Entry=96`. Now **re-create the original bug** to see it with your own eyes: add `std::mt19937 rng_{12345};` as a member of `SkipList` (in `skiplist.h`, below `length_`) and run the program again. You'll get about **5088**: every key now costs 5 KB, because a `std::variant` is as big as its largest alternative. Run `make unit-test` and watch `entries_stay_small` fail; that test exists to catch exactly this. Undo it (`git checkout -- server/skiplist.h`), then read [known issue #1](7-defense-guide.md#known-issue-1-every-key-cost-about-5-kb-fixed) for how it was found and fixed. This is the most valuable thing to understand in the whole project.
 
 **Checkpoint**
 1. Why both lazy and active expiry? What would go wrong with only one?
 2. Why does the expiry index store `(time, key)` and not just `time`?
 3. Why are expiry times absolute wall-clock milliseconds?
 4. Why can `rename` move a 1-million-element list in O(1)?
-5. Why is every key about 5 KB, and how would you fix it?
+5. Why did every key cost about 5 KB in the first version, and how was it fixed?
 
 <details><summary>Answers</summary>
 
@@ -210,7 +210,7 @@ Study in this order: each module only depends on the ones before it. Each one ha
 2. Two keys can expire in the same millisecond. A set needs unique elements, and when deleting a key you need to find *its* entry. `(time, key)` is unique and findable.
 3. They're written to the AOF and must mean the same instant after a restart. A monotonic clock restarts from an arbitrary point each boot.
 4. `extract()` unlinks the map node, the key is changed, and the node is re-inserted. The value never moves.
-5. `std::variant` reserves space for its largest alternative, `SortedSet`, which contains a ~5 KB `std::mt19937`. Share one generator (a function-local `static`), or store `SortedSet` behind a `unique_ptr`. Measured: 505 MB → 21 MB for 100k keys.
+5. `std::variant` reserves space for its largest alternative, `SortedSet`, which used to contain a ~5 KB `std::mt19937`. The fix moved the generator into `random_level()` as one shared function-local `static`. (Storing `SortedSet` behind a `unique_ptr` would also work.) Measured: 100k keys went from ~490 MB to ~17 MB of added memory; `sizeof(Value)` 5088 → 88.
 </details>
 
 ### M3 Skip list and sorted set
@@ -354,7 +354,7 @@ Study in this order: each module only depends on the ones before it. Each one ha
 
 ### M8 Tests, build, CI
 
-- **What**: a 77-line test framework, 31 unit tests, a shell e2e suite, micro benchmarks, a Makefile with a sanitizer build, and GitHub Actions.
+- **What**: a 77-line test framework, 32 unit tests, a shell e2e suite, micro benchmarks, a Makefile with a sanitizer build, and GitHub Actions.
 - **Why**: evidence. Every claim in the README is backed by a test you can point to.
 - **Read**: `tests/test_framework.h`, `tests/test_main.cpp`, `tests/e2e_test.sh`, `Makefile`, `.github/workflows/ci.yml`; [walkthrough 08](3-walkthrough/08-tests-and-build.md); [diagrams 22-23](5-diagrams.md#22-build-graph).
 - **C++**: [macros](6-cpp-concepts.md#macros-define), [`#` and `##`](6-cpp-concepts.md#stringizing--and-token-pasting-), [self-registering tests](6-cpp-concepts.md#self-registering-tests-static-initialization).
@@ -442,7 +442,7 @@ The `bt` output *is* [diagram 8](5-diagrams.md#8-one-request-end-to-end) as a ca
 |---|---|---|---|---|
 | 1 | Add `GETDEL key` | ★ | `cmd_strings.cpp`, `test_commands.cpp` | the handler pattern, the dirty flag |
 | 2 | Add `ZREVRANGE` or `ZRANGE ... REV` | ★ | `cmd_zsets.cpp` | rank arithmetic |
-| 3 | **Fix known issue #1** (5 KB per key) | ★ | `skiplist.h/.cpp` | `sizeof`, variants, measuring RSS. Expect 505 MB → 21 MB |
+| 3 | Give `SkipList` a real move constructor (and make `Entry` movable) | ★★ | `skiplist.h/.cpp` | move semantics, the rule of five, why deleting copy also deleted move |
 | 4 | Add `LPOP key count` | ★★ | `cmd_lists.cpp` | optional arguments, array replies |
 | 5 | Make the inline parser support `"quoted strings"` | ★★ | `resp_parser.cpp` | parsing, reuse ideas from `arg_splitter.cpp` |
 | 6 | Output-buffer limit (known issue #2) | ★★ | `server.cpp`, `connection.h` | backpressure, test with a client that never reads |
@@ -455,7 +455,7 @@ The `bt` output *is* [diagram 8](5-diagrams.md#8-one-request-end-to-end) as a ca
 | 13 | Background rewrite with `fork()` | ★★★★ | `aof.cpp`, `server.cpp` | copy-on-write, `waitpid`, rewrite buffers |
 | 14 | Pub/Sub (`SUBSCRIBE`, `PUBLISH`) | ★★★★ | `server.cpp`, `connection.h` | server-pushed messages, connection modes |
 
-Start with #3: it's tiny, measurable, and the best interview story in the project.
+Start with #1 or #2 to learn the handler pattern, then #6 (output-buffer limit): it's the most important remaining production gap.
 
 ---
 
@@ -498,7 +498,7 @@ You own this project when you can do all of these **without notes**:
 - [ ] Build, run all tests, run under sanitizers, run the micro benchmarks.
 - [ ] Simulate a crash mid-write and show recovery.
 - [ ] Show the AOF-before-reply ordering with `strace`.
-- [ ] Measure memory per key, and explain the 5 KB.
+- [ ] Measure memory per key, and explain why it used to be 5 KB and what fixed it.
 - [ ] Add a new command with a test in under 20 minutes.
 
 **Defend**

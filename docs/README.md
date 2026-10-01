@@ -1,6 +1,6 @@
 # mini-redis documentation
 
-Everything you need to understand, explain and defend this project, from "what is a socket?" to "why is `sizeof(Value)` 5088 bytes?".
+Everything you need to understand, explain and defend this project, from "what is a socket?" to "why did every key once cost 5 KB?".
 
 ## Start here
 
@@ -32,7 +32,7 @@ Everything you need to understand, explain and defend this project, from "what i
 
 ## How these docs were checked
 
-- Built and ran everything: 31/31 unit tests, 35/35 end-to-end checks (with the official `redis-cli` installed), all again under ASan + UBSan.
+- Built and ran everything: 32/32 unit tests, 35/35 end-to-end checks (with the official `redis-cli` installed), all again under ASan + UBSan.
 - Every "break it" experiment in the learning path was applied and its failure observed.
 - All Mermaid diagrams render with mermaid-cli.
 - Measurements (memory per key, micro benchmarks, `redis-benchmark` vs Redis 7.0.15) were taken on a 4-core x86-64 VM. Re-measure on your machine before quoting numbers.

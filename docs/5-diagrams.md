@@ -216,7 +216,6 @@ classDiagram
         -Node* head_
         -int level_
         -size_t length_
-        -mt19937 rng_
         +insert(score, member)
         +remove(score, member) bool
         +rank(score, member) long
@@ -269,25 +268,34 @@ classDiagram
 
 ```
 unordered_map<string, Entry> data_           (node-based hash table)
- bucket array ──▶ node ──────────────────────────────────────────────────────────┐
-                  │ key: std::string  "user:1"         (32 bytes + heap if long)  │
-                  │ Entry                                                         │
-                  │   value: std::variant<string, List, Hash, SortedSet>          │
-                  │   ┌──────────────────────────────────────────────────────┐    │
-                  │   │ index (which type?)  + storage big enough for the    │    │
-                  │   │ LARGEST alternative = SortedSet = 5080 bytes         │    │
-                  │   │   SortedSet { unordered_map scores_ (56 B)           │    │
-                  │   │               SkipList { head_, level_, length_,     │    │
-                  │   │                          std::mt19937 rng_ (~5000 B) }│    │
-                  │   └──────────────────────────────────────────────────────┘    │
-                  │   expire_at: int64_t  (-1 = no TTL)                           │
-                  └───────────────────────────────────────────────────────────────┘
- sizeof(Value) = 5088 bytes, sizeof(Entry) = 5096 bytes   (measured with g++ 13, x86-64)
+ bucket array ──▶ node ─────────────────────────────────────────────────────────┐
+                  │ key: std::string  "user:1"        (32 bytes + heap if long)  │
+                  │ Entry                                         96 bytes       │
+                  │   value: std::variant<string, List, Hash, SortedSet>         │
+                  │   ┌─────────────────────────────────────────────────────┐    │
+                  │   │ index (which type?) + storage big enough for the    │    │
+                  │   │ LARGEST alternative:                                │    │
+                  │   │   string 32 B · List (deque) 80 B · Hash 56 B ·     │    │
+                  │   │   SortedSet 80 B { scores_ map, SkipList {head_,    │    │
+                  │   │                    level_, length_} }               │    │
+                  │   └───────────────────────────────── 88 bytes ──────────┘    │
+                  │   expire_at: int64_t  (-1 = no TTL)                          │
+                  └──────────────────────────────────────────────────────────────┘
+                                   (sizes: g++ 13, libstdc++, x86-64)
 ```
 
-- **Read it as**: a `std::variant` is a box sized for its biggest possible content. Even when it holds a 1-byte string, the box is 5 KB because a `SortedSet` *could* live there, and `SortedSet` embeds a Mersenne Twister random number generator (`std::mt19937`, about 5 KB of state).
-- **Why it matters**: this is the project's biggest hidden cost. Measured: 100 000 `SET kN v` keys use **~505 MB** RSS (about 5 KB per key). Real Redis needs around 10 MB for the same data. It is a great thing to *find and explain* in an interview. The fix and the reasoning are in the [defense guide, known issue #1](7-defense-guide.md#known-issue-1-every-key-costs-about-5-kb).
-- **Code**: `server/database.h:19`, `server/skiplist.h:68`.
+**Before the fix** (the first version of this project), `SkipList` had a member `std::mt19937 rng_`, a random generator carrying ~5 000 bytes of state:
+
+```
+                       sizeof(Value)   sizeof(Entry)   memory added by 100 000 x SET kN v
+with rng_ member           5088            5096          ~490 MB  (~5 KB per key)
+shared static rng            88              96           ~17 MB  (~175 B per key)
+real Redis 7.0.15             -               -            ~9 MB  (~93 B per key)
+```
+
+- **Read it as**: a `std::variant` is a box sized for its biggest possible content. When `SortedSet` was 5 KB, *every* key's box was 5 KB, even a 1-byte string, because a sorted set *could* have lived there.
+- **Why it matters**: this was the project's biggest hidden cost, found by measuring memory per key. Moving the generator into `random_level()` as one shared `static` cut memory ~30×. The test `entries_stay_small` (`tests/test_database.cpp`) now fails if any value type quietly grows again. The full story is in the [defense guide, known issue #1](7-defense-guide.md#known-issue-1-every-key-cost-about-5-kb-fixed).
+- **Code**: `server/database.h:19`, `server/skiplist.cpp:30`.
 
 ---
 
@@ -833,9 +841,9 @@ flowchart TB
         e8["REWRITEAOF shrinks the file"]
         e9["official redis-cli"]
     end
-    subgraph UNIT["Unit tests: 31 TESTs (no network)"]
+    subgraph UNIT["Unit tests: 32 TESTs (no network)"]
         u1["test_resp_parser: 7"]
-        u2["test_database: 6"]
+        u2["test_database: 7 (incl. entry size guard)"]
         u3["test_sorted_set: 3 (incl. 20k random ops vs std::set)"]
         u4["test_commands: 10"]
         u5["test_aof: 5"]

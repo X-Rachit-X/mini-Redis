@@ -37,8 +37,8 @@ OK
 - **Graceful shutdown** on SIGINT/SIGTERM, using async-signal-safe handling.
 - **Client**: an interactive REPL, a one-shot mode, and piped input. It has a buffered reply reader, redis-cli style output, and quote/escape parsing.
 - **Tested**:
-  - 31 unit tests, including a 20 000-operation randomized test comparing the skip list against `std::set`.
-  - 34 end-to-end checks: pipelining, split packets, protocol errors, 20 concurrent clients, restart recovery.
+  - 32 unit tests, including a 20 000-operation randomized test comparing the skip list against `std::set`, and a guard that keeps every key's `Entry` small.
+  - 35 end-to-end checks: pipelining, split packets, protocol errors, 20 concurrent clients, restart recovery, and the official `redis-cli` (34 if it isn't installed).
   - Everything also runs under **AddressSanitizer + UBSan** in GitHub Actions CI.
 
 ## Build and run (Linux / WSL)
@@ -92,15 +92,32 @@ More diagrams (layers, classes, every flow as a sequence diagram, state machines
 
 ## Benchmarks
 
-**Micro benchmarks** (`make microbench`, WSL2, g++ 13 -O2):
+**Micro benchmarks** (`make microbench`, g++ 13 `-O2`). Two machines, so you can see the spread:
 
-| What | Result | Why it matters |
+| What | 4-core cloud VM (3 runs) | WSL2 laptop | Why it matters |
+|---|---|---|---|
+| 50 000 × LPUSH: `std::vector` vs `std::deque` | ~5 000 ms vs ~1.5 ms (**~3 200-3 700×**) | 2219 ms vs 2.1 ms (~1000×) | lists use a deque |
+| RESP parser, 1M pipelined `SET` commands | **~17.6 M commands/s**, ~790 MB/s | ~39 M commands/s, ~1.7 GB/s | parsing is never the bottleneck |
+| 200 × ZRANK on 200 000 members: skip list vs `std::set` walk | ~1 ms vs ~4 000 ms (**~3 800-4 400×**) | 0.32 ms vs 1956 ms (~6000×) | spans give O(log n) rank |
+
+**Memory per key** (100 000 × `SET kN v`, memory added):
+
+| | mini-redis | Redis 7.0.15 |
 |---|---|---|
-| 50 000 × LPUSH: `std::vector` vs `std::deque` | 2219 ms vs 2.1 ms (**~1000× faster**) | lists use a deque |
-| RESP parser, 1M pipelined `SET` commands | **~39 M commands/s**, ~1.7 GB/s | parsing is never the bottleneck |
-| 200 × ZRANK on 200 000 members: skip list vs `std::set` walk | 0.32 ms vs 1956 ms (**~6000× faster**) | spans give O(log n) rank |
+| per key | **175 B** (`sizeof(Entry)` = 96) | 93 B |
+| total | ~17 MB | ~9 MB |
 
-**Server throughput**: `make benchmark` runs `redis-benchmark` against mini-redis and against real Redis with the same settings (1 and 50 clients, pipeline 1 and 16). It writes the results to `bench/results/summary.md`.
+The first version used ~5 KB per key: a 5 KB random generator inside the skip list sized every `std::variant` value. Moving it to one shared generator cut memory ~30×, and the test `entries_stay_small` keeps it that way. The full story is in the [defense guide](docs/7-defense-guide.md#known-issue-1-every-key-cost-about-5-kb-fixed).
+
+**Server throughput vs real Redis** (`redis-benchmark`, both single-threaded, persistence off, same 4-core VM):
+
+| Scenario | mini-redis as % of Redis |
+|---|---|
+| `make benchmark`: one hot key, 1 or 50 clients, pipeline 1 or 16, 7 commands | **74-137%** (mostly 80-115%) |
+| ~630 000 distinct keys (`-r 1000000 -c 50 -P 16`), SET / GET | **~67-87%** / **~67-84%** |
+| Memory for those ~630 000 keys | 121 MB vs 75 MB (1.6× more) |
+
+On simple commands with one hot key it is level with Redis. With many keys Redis is clearly faster and leaner, thanks to incremental rehashing and jemalloc. Run `make benchmark` to reproduce; full tables and caveats are in the [defense guide](docs/7-defense-guide.md#throughput-vs-real-redis-redis-benchmark).
 
 ## Documentation
 
