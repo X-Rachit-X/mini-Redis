@@ -4,21 +4,52 @@
 [Unit]
 Description=mini-redis web terminal (ttyd)
 After=network.target mini-redis.service
-Requires=mini-redis.service
+# Wants, not Requires: if the server is stopped or fails, the terminal stays up
+# (visitors see "Could not connect") and works again as soon as the server is
+# back. With Requires, systemd stopped the terminal too and never restarted it.
+Wants=mini-redis.service
 
 [Service]
 Type=simple
 User=miniredis
 # -i 127.0.0.1   only Caddy can reach it
 # -W             let visitors type (ttyd is read-only by default)
+# -O             refuse WebSocket connections from other websites. Without it,
+#                a malicious page could drive the terminal through a visitor's
+#                browser, which re-sends the cached password (tested: it worked)
 # -m 10          at most 10 browser sessions at once
 # -b /try        Caddy sends the terminal's requests under /try/, so ttyd must
 #                expect that prefix in every URL it serves
 # Each visitor gets their own mini-redis-cli process. It is NOT a shell:
 # visitors can only send Redis commands.
-ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 7681 -W -m 10 -b /try -t titleFixed=mini-redis -t fontSize=16 /usr/local/bin/mini-redis-cli
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 7681 -W -O -m 10 -b /try -t titleFixed=mini-redis -t fontSize=16 /usr/local/bin/mini-redis-cli
 Restart=on-failure
 RestartSec=2
+
+# Sandboxing: this is the internet-facing process, so it gets the least access.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+# AF_NETLINK is required: ttyd resolves -i 127.0.0.1 through it, and without
+# it ttyd silently listens on EVERY interface instead (tested).
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target

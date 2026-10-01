@@ -3,6 +3,12 @@
 [Unit]
 Description=mini-redis in-memory data store
 After=network.target
+# Give up after 5 failed starts within 2 minutes instead of retrying forever.
+# Without this, an AOF holding more data than MemoryMax gets the server killed
+# during every replay, in an endless restart loop (tested). The unit then shows
+# "failed"; docs/9-deploy.md (Troubleshooting) explains how to recover.
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -17,6 +23,31 @@ KillSignal=SIGTERM
 MemoryMax=256M
 Restart=on-failure
 RestartSec=2
+
+# Sandboxing: even if a bug were exploited, the process can't gain privileges,
+# can't write anywhere except its data folder, and can't see home directories.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mini-redis
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_UNIX
 
 [Install]
 WantedBy=multi-user.target
