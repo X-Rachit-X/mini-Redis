@@ -140,7 +140,8 @@ The [`docs/`](docs/README.md) folder explains the project in layers. **Start wit
 6. [C++ concepts](docs/6-cpp-concepts.md): every C++ and POSIX feature used, in plain language, with where and why.
 7. [Defense guide](docs/7-defense-guide.md): measured facts, claim-to-evidence map, alternatives considered, known issues and fixes.
 8. [Reference](docs/8-reference.md): commands, AOF rules, limits, error messages, glossary.
-9. [Running and deploying](docs/9-deploy.md): local, Docker, systemd, SSH tunnel, and what production would still need.
+9. [Running and deploying](docs/9-deploy.md): local, Docker, systemd, SSH tunnel, a public browser demo, and what production would still need.
+10. [Deployment concepts](docs/10-deployment-concepts.md): everything behind layer 9 from zero, up to containers, security and scaling.
 
 **Interview presentation:** [docs/interview/index.html](docs/interview/index.html). Open it in a browser: an interactive talk track with what to show, what to say, and where the interviewer will dig.
 

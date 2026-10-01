@@ -1,5 +1,7 @@
 # Layer 9: Running and deploying
 
+This layer is the recipe. For what each piece is and why it's there (ports, systemd, DNS, HTTPS, reverse proxies, ttyd, Docker), read [Layer 10: Deployment concepts](10-deployment-concepts.md).
+
 This guide goes from simplest to most complete:
 
 | Section | What you get |
