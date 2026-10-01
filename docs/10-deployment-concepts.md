@@ -128,7 +128,7 @@ Every process runs **as some user**, and can only do what that user is allowed t
   ```
   `--system`: a service account. `--no-create-home`: it needs no home folder. `--shell /usr/sbin/nologin`: nobody can log in as it.
 
-Both `mini-redis-server` and `ttyd` run as `miniredis`. They can write to `/var/lib/mini-redis` and almost nowhere else. This is the **principle of least privilege**: give each program only the access it needs.
+Both `mini-redis-server` and `ttyd` run as `miniredis`. They can write to `/var/lib/mini-redis` and nowhere else (systemd's sandboxing enforces that, section 8). This is the **principle of least privilege**: give each program only the access it needs.
 
 ### Where things go
 Linux has conventions (the *Filesystem Hierarchy Standard*) so everyone knows where to look:
@@ -193,6 +193,12 @@ After=network.target
 - `After=network.target`: start only once networking is up, because we need to bind a socket.
 
 ```ini
+StartLimitIntervalSec=120
+StartLimitBurst=5
+```
+A circuit breaker for `Restart=` (below): if the service has to be started more than 5 times within 120 seconds, systemd gives up and marks it `failed` instead of retrying forever. Section 9 shows the case that needs it.
+
+```ini
 [Service]
 Type=simple
 ```
@@ -226,6 +232,24 @@ RestartSec=2
 If the process exits with an error or is killed by a signal, start it again after 2 seconds. On restart the server replays the AOF, so the data comes back.
 
 ```ini
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mini-redis
+ProtectHome=yes
+PrivateTmp=yes
+...
+```
+**Sandboxing.** Running as `miniredis` already limits what the process may do. These lines make systemd build a tighter box around it, using the same kernel features containers use:
+- `NoNewPrivileges`: the process can never gain more rights (no `setuid` tricks).
+- `ProtectSystem=strict` + `ReadWritePaths=`: the whole filesystem is **read-only** for it, except its data folder.
+- `ProtectHome`: `/home` and `/root` are invisible.
+- `PrivateTmp`, `PrivateDevices`: its own empty `/tmp`, and no access to hardware devices.
+- `ProtectKernel*`, `ProtectClock`, `RestrictNamespaces`, `SystemCallFilter=@system-service`, `CapabilityBoundingSet=` ...: it can't change kernel settings, load modules, set the clock, create containers or use unusual system calls, and holds no special capabilities.
+- `RestrictAddressFamilies=`: it may only open the kinds of sockets it needs.
+
+`systemd-analyze security mini-redis` scores this: the unit without these lines scored **9.2 UNSAFE**, with them **1.5 OK** (measured). Tested: inside this sandbox, writing to `/usr/local/bin` fails with "Read-only file system", `/home` can't be read, and the data folder works normally (including `REWRITEAOF`).
+
+```ini
 [Install]
 WantedBy=multi-user.target
 ```
@@ -257,9 +281,11 @@ setvbuf(stdout, nullptr, _IOLBF, 0);   // flush at every newline
 `deploy/mini-redis-web.service` runs ttyd the same way. It adds:
 ```ini
 After=network.target mini-redis.service
-Requires=mini-redis.service
+Wants=mini-redis.service
 ```
-These lines start the web terminal after the server, and stop it if the server is stopped. A web terminal with no database behind it is useless.
+These lines start the web terminal after the server, and pull the server in when the terminal starts. Why `Wants` and not `Requires`? With `Requires`, stopping the server (or the server ending up `failed`) also stopped the terminal, and starting the server again did **not** bring the terminal back (tested), so visitors got "502 Bad Gateway" until someone noticed. With `Wants`, the terminal stays up: while the server is down, visitors see the CLI's "Could not connect" message, and it works again the moment the server is back.
+
+It also gets the same sandbox as the server, plus ttyd's `-O` flag (section 17). One sandbox detail was learned the hard way: ttyd needs the `AF_NETLINK` socket type to turn `-i 127.0.0.1` into a network address. Without it, ttyd doesn't fail: it silently listens on **every** interface instead (tested), which is why that family is allowed for this service.
 
 ## 9. Resource limits (cgroups)
 
@@ -267,7 +293,9 @@ Real Redis has `maxmemory`: past a limit, it evicts keys or refuses writes. **mi
 
 `MemoryMax=256M` uses a kernel feature called **cgroups** (control groups), which limit the CPU, memory or I/O of a group of processes. If mini-redis exceeds 256 MB, only *it* is killed. `Restart=on-failure` brings it back, and the rest of the machine never notices. It's a safety net that fixes the problem from outside the program.
 
-One catch, covered in Layer 9's troubleshooting table: if the AOF itself holds more than 256 MB of data, replaying it on restart hits the limit again, and the service keeps restarting. The fix is to delete the AOF or raise the limit.
+One catch, found by testing it: if the AOF itself holds more data than the cap, replaying it on restart hits the limit again. Without a limit on restarts, that's an endless loop: killed during replay, restarted, killed again (9 restarts in 40 seconds in the test, never answering a single request, and burning CPU the whole time). `StartLimitBurst=5` (section 8) turns that into a clear `failed` state after 5 attempts. Layer 9's troubleshooting table has the recovery command: delete the AOF (or raise the limit), then `systemctl reset-failed` before starting again, because systemd otherwise keeps refusing to start a unit that hit its start limit.
+
+The real fix is inside the program: a `maxmemory` setting that **refuses writes** before the cap is reached, like Redis's `noeviction` policy. Then the kernel cap would never be hit.
 
 ## 10. Where the data lives, and backups
 
@@ -423,9 +451,18 @@ The flags in `deploy/mini-redis-web.service`:
 | `-i 127.0.0.1` | listen on localhost only, so only Caddy can reach it |
 | `-p 7681` | port |
 | `-W` | writable: visitors can type (ttyd 1.7+ is read-only by default) |
+| `-O` | check origin: refuse WebSocket connections opened by pages from another website (see below) |
 | `-m 10` | at most 10 sessions at once, which limits how many CLI processes a crowd can start |
 | `-b /try` | base path: the terminal lives at `/try/` on the site, so every URL ttyd serves (page, `/try/token`, `/try/ws`) carries that prefix ([Layer 11](11-caddy.md#5-our-caddyfile-line-by-line) explains why) |
 | `-t titleFixed=…`, `-t fontSize=16` | browser tab title and font size |
+
+### Why `-O`: cross-site WebSocket hijacking
+After you log in once, your browser remembers the password for that site and **re-sends it automatically**, including on WebSocket connections that *another* website's JavaScript opens to your site. Without a check, a malicious page that a logged-in visitor opens could connect to `wss://your-site/try/ws` and type commands in the visitor's name. This attack is called **cross-site WebSocket hijacking**.
+
+Every browser WebSocket request carries an `Origin` header naming the page that opened it. With `-O`, ttyd compares it with the `Host` header and refuses a mismatch. That works behind Caddy because Caddy passes the original `Host` through ([Layer 11](11-caddy.md)). Tested both ways: a connection claiming `Origin: https://evil.example`, with the right password, could write data without `-O`, and was refused with it, while normal visitors still got in.
+
+### Watch out: Ubuntu's ttyd package has its own service
+`apt install ttyd` also installs and starts `ttyd.service`, which serves a **root** `login` prompt on port 7681. It only listens on localhost, but it takes the port our service needs and is a root login nobody asked for. Layer 9, step 4 disables it right after installing (`sudo systemctl disable --now ttyd`).
 
 ## 18. The full journey of one keystroke
 
@@ -496,10 +533,23 @@ COPY --from=build /src/bin/mini-redis-server /src/bin/mini-redis-cli /usr/local/
 Stage 2 is a **fresh, clean image**, and only the two finished binaries are copied in from stage 1. The compiler, source code and object files are left behind. This is a **multi-stage build**: the final image is much smaller, and it contains no build tools an attacker could use.
 
 ```dockerfile
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin miniredis \
+    && mkdir /data && chown miniredis: /data
+USER miniredis
+```
+Containers run as **root** unless told otherwise. `USER` switches to an unprivileged account for everything after it, including the server, the same principle as the systemd setup (section 6). `/data` is created and handed to that user *before* the `VOLUME` line, because Docker copies the folder's ownership into a new named volume. (A volume created by an older, root-run image keeps root-owned files: Layer 9 has the one-line `chown` fix.)
+
+```dockerfile
 WORKDIR /data
 VOLUME /data
 ```
 The AOF is written in `/data`, and declaring it a **volume** tells Docker that data there must outlive the container (see below).
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
+    CMD ["mini-redis-cli", "PING"]
+```
+Every 30 seconds Docker runs `mini-redis-cli PING` inside the container. `docker ps` then shows `healthy` or `unhealthy`, and orchestrators (Docker Compose, Swarm) can use that to restart or route around a broken container. A process can be running but stuck; a health check asks "does it actually answer?".
 
 ```dockerfile
 EXPOSE 6379
@@ -562,10 +612,12 @@ You don't need to be famous to be attacked. Automated **bots scan every public I
 | Binding | mini-redis and ttyd listen on localhost only | `--bind 127.0.0.1`, `ttyd -i 127.0.0.1` |
 | Transport | everything public is HTTPS (TLS) | Caddy |
 | Access | a password (bcrypt hash) before anything reaches ttyd | `basic_auth` |
+| Origin | other websites can't open the terminal through a logged-in visitor's browser | `ttyd -O` |
 | Application | visitors get the Redis CLI, not a shell | ttyd runs `mini-redis-cli` |
 | Capacity | at most 10 sessions | `ttyd -m 10` |
 | Resources | the server's memory is capped at 256 MB | `MemoryMax=256M` |
 | OS | services run as `miniredis`: no login, no home, minimal rights | `useradd --system ... nologin` |
+| Sandbox | read-only filesystem except the data folder, no privileges, restricted system calls | systemd `Protect*=` and friends (1.5 OK) |
 | Login | SSH accepts keys only | provider default |
 
 **What's still weak**, and fine to say in an interview:

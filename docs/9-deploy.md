@@ -61,7 +61,18 @@ What each part means:
 - `-v mini-redis-data:/data`: the AOF is stored in a Docker volume, so data survives `docker rm` and re-creating the container.
 - Inside the container the server listens on `0.0.0.0`. It has to, or Docker's port forwarding couldn't reach it. Who can reach it from outside is decided by `-p`.
 
-Stop it gracefully with `docker stop mini-redis`. Docker sends SIGTERM, our handler flushes the AOF, then it exits.
+- The server runs as an unprivileged `miniredis` user (uid 999), not root, the same idea as the systemd setup.
+- `docker ps` shows the container as `healthy` once it answers `PING` (the image's `HEALTHCHECK`).
+
+Stop it gracefully with `docker stop mini-redis`. Docker sends SIGTERM, our handler flushes the AOF, then it exits (tested: it stops in well under a second, exit code 0, log ends with "AOF flushed to disk").
+
+**Upgrading from an older image that ran as root?** Its volume holds an AOF owned by root, and the new image stops with `open /data/appendonly.aof: Permission denied`. Fix the ownership once, then start it normally:
+
+```bash
+docker run --rm --user root -v mini-redis-data:/data --entrypoint chown mini-redis -R miniredis: /data
+```
+
+Using a host folder instead of a named volume (`-v "$PWD/data":/data`)? It must be writable by uid 999: `sudo chown -R 999:999 data`.
 
 On Windows with Docker Desktop: run the same commands in PowerShell, or enable *WSL integration* in Docker Desktop settings to use `docker` inside Ubuntu.
 
@@ -73,6 +84,7 @@ This is how you'd run it on a cloud VM (AWS EC2, Google Cloud, Oracle Cloud free
 
 ```bash
 # on the server
+sudo apt update                              # a fresh VM's package list may be empty or stale
 sudo apt install -y g++ make git
 git clone https://github.com/X-Rachit-X/mini-Redis.git && cd mini-Redis && make
 sudo cp bin/mini-redis-server bin/mini-redis-cli /usr/local/bin/
@@ -93,7 +105,9 @@ mini-redis-cli PING                          # PONG
 Why each step:
 - **Dedicated user**: if someone ever exploited a bug in the server, they'd only get the rights of `miniredis`, not root or your account.
 - **`/var/lib/mini-redis`**: the conventional place for a service's data on Linux.
-- **The unit file** (`deploy/mini-redis.service`): `Restart=on-failure` restarts it after a crash. `KillSignal=SIGTERM` makes `systemctl stop` trigger our graceful shutdown. It binds to `127.0.0.1`. `MemoryMax=256M` caps its memory, because mini-redis has no `maxmemory` setting of its own: past the cap the kernel stops the service instead of the whole VM running out of memory.
+- **The unit file** (`deploy/mini-redis.service`): `Restart=on-failure` restarts it after a crash. `KillSignal=SIGTERM` makes `systemctl stop` trigger our graceful shutdown. It binds to `127.0.0.1`. `MemoryMax=256M` caps its memory, because mini-redis has no `maxmemory` setting of its own: past the cap the kernel kills the service instead of the whole VM running out of memory, and systemd restarts it.
+- **The restart limit** (`StartLimitBurst=5` in 120 s): if the AOF itself holds more data than the cap, every restart replays it and gets killed again. Without a limit that loops forever (tested: 9 restarts in 40 seconds and counting). With it, the unit stops as `failed` after 5 attempts. See *Server is "failed"* in Troubleshooting.
+- **Sandboxing** (`NoNewPrivileges`, `ProtectSystem=strict`, `ReadWritePaths=`, `ProtectHome`, ...): even if a bug were exploited, the process can't gain privileges, can't write anywhere except `/var/lib/mini-redis`, and can't see home directories. `systemd-analyze security mini-redis` rates it **1.5 OK** (the unit without these lines: **9.2 UNSAFE**, measured).
 
 ---
 
@@ -140,7 +154,7 @@ browser ──HTTPS──▶ Caddy ┤
 - **The landing page** (`deploy/site/index.html`) is a single static HTML file: what the project is, commands to try with copy buttons, and how it works.
 - Only ports 22 (SSH), 80 and 443 are open to the internet. The Redis port (6379) and ttyd (7681) stay on localhost.
 
-> These steps haven't been run end to end yet. Do them once on your VM, and use step 7's checks and the troubleshooting table if something doesn't match.
+> **Tested end to end** on a fresh Ubuntu 24.04 with systemd: every command below, every check in step 7, a visitor session through HTTPS, the password and ttyd, crash and restart, a full reboot, and the memory cap. What a test machine can't reproduce: your provider's firewall, and a real Let's Encrypt certificate (the test used Caddy's local certificate authority with the same Caddyfile). If something doesn't match, step 7's checks and the troubleshooting table cover what goes wrong.
 
 What you need: a cloud VM (free tiers work), about 45 minutes, and no domain name (we use `sslip.io`, explained in step 6).
 
@@ -201,25 +215,31 @@ mini-redis-cli PING                               # → PONG
 
 ```bash
 sudo apt install -y ttyd
-ttyd --help | grep -- "-W"                        # should list "-W, --writable"
+sudo systemctl disable --now ttyd                 # IMPORTANT, see below
+ttyd --help 2>&1 | grep -E -- "--writable|--check-origin"   # both should be listed
 ```
 
-If `-W` isn't listed, your ttyd is older and writable by default: delete ` -W` from `deploy/mini-redis-web.service` before the next step.
+**Why disable `ttyd`?** Ubuntu's `ttyd` package also installs and starts its *own* service: a **root** `login` prompt on port 7681, the port we need. Left running, it takes the port, and our `mini-redis-web` service fails with "ERROR on binding ... to port 7681" (tested). We only want the program, not that service.
+
+If `--writable` isn't listed, your ttyd is older and writable by default: delete ` -W` from `deploy/mini-redis-web.service` before the next step. (`ttyd --help` prints to stderr, hence the `2>&1`.)
 
 ```bash
 sudo cp deploy/mini-redis-web.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now mini-redis-web
 curl -s http://127.0.0.1:7681/try/ | head -c 80; echo   # some HTML → ttyd is serving
+sudo ss -ltnp | grep 7681                                # 127.0.0.1:7681 ... "ttyd" (not 0.0.0.0)
 ```
 
 What the service runs (see the comments in `deploy/mini-redis-web.service`):
 `ttyd -i 127.0.0.1 -p 7681 -W -m 10 -b /try ... /usr/local/bin/mini-redis-cli`
 - `-i 127.0.0.1`: only programs on the VM (Caddy) can reach it.
 - `-W`: visitors can type.
+- `-O`: refuse WebSocket connections that come from another website. After logging in, a browser re-sends the password automatically, so without this a malicious page could open the terminal *through a visitor's browser* (tested: it could write data; with `-O` it's refused).
 - `-m 10`: at most 10 people at once.
 - `-b /try`: the terminal lives at `/try/` on the website, so ttyd must expect that prefix on every URL (its page, its script, its WebSocket).
-- It runs as the `miniredis` user, which has no login shell and no rights outside its data folder.
+- It runs as the `miniredis` user, which has no login shell, inside the same kind of sandbox as the server (it can't write anywhere at all).
+- `Wants=mini-redis.service`: starting the terminal also starts the server, but if the server is stopped or fails, the terminal **stays up** (visitors see "Could not connect") and works again as soon as the server is back. (An earlier version used `Requires=`, which stopped the terminal with the server and never restarted it.)
 
 ### Step 5. Install the landing page
 
@@ -241,7 +261,10 @@ sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https cu
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
 sudo apt update && sudo apt install -y caddy
+caddy version                                     # must be v2.8 or newer
 ```
+
+**Check that version.** If adding the repository failed (a typo, a network error), `apt` silently installs Ubuntu's own, older Caddy (2.6.2 on 24.04) instead. That version doesn't know the `basic_auth` directive (it was called `basicauth` before 2.8), so step 6's `caddy validate` fails with `unrecognized directive: basic_auth` (tested). Fix: redo the three repository lines above, then `sudo apt install -y caddy` again.
 
 Pick the web address. HTTPS certificates need a host name, not a bare IP. **sslip.io** is a free service where `203-0-113-10.sslip.io` automatically points to `203.0.113.10`, so you don't need to buy a domain. (If you own one, point an `A` record at your IP and use that name instead.)
 
@@ -259,8 +282,11 @@ nano deploy/Caddyfile
 #  - replace $2a$14$REPLACE_WITH_... with the hash you just printed
 sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile   # "Valid configuration"
+grep -c REPLACE /etc/caddy/Caddyfile                  # 0 → you replaced the placeholder hash
 sudo systemctl reload caddy
 ```
+
+`caddy validate` does **not** notice if you forgot to replace the placeholder hash: the file is still valid. The result is safe but confusing: every password, including the right one, gets 401 (tested). The `grep` line catches it.
 
 Caddy now requests a certificate from Let's Encrypt. That takes a few seconds and needs ports 80 and 443 open (step 1).
 
@@ -312,6 +338,7 @@ Try a copy button on the landing page and paste into the terminal. Type `help` f
 | Change the password | `caddy hash-password`, edit `/etc/caddy/Caddyfile`, `sudo systemctl reload caddy` |
 | Caddy's logs | `journalctl -u caddy -f` |
 | Take the terminal offline | `sudo systemctl stop mini-redis-web`. The landing page stays up; its button then shows an error. |
+| Check the sandboxing | `systemd-analyze security mini-redis mini-redis-web`: both should say **1.5 OK** |
 | Take everything offline | stop the VM in the provider's console |
 
 ### Troubleshooting
@@ -324,9 +351,12 @@ Try a copy button on the landing page and paste into the terminal. Type `help` f
 | Login works, then "502 Bad Gateway" | ttyd isn't running: `systemctl status mini-redis-web`. Check the `-W` note in step 4. |
 | Login works, then a blank or broken page | ttyd isn't using the `/try` prefix. Check that `-b /try` is in `/etc/systemd/system/mini-redis-web.service`, then `sudo systemctl daemon-reload && sudo systemctl restart mini-redis-web`. |
 | Terminal draws, but nothing you type appears | ttyd is read-only: add `-W` (step 4). |
-| `caddy validate` fails | Usually a typo in the host name or a hash pasted incompletely. The error names the line. `caddy fmt --overwrite /etc/caddy/Caddyfile` also fixes indentation. |
+| `caddy validate`: `unrecognized directive: basic_auth` | Your Caddy is older than 2.8 (Ubuntu's own package). Check `caddy version`, then install from Caddy's repository (step 6). |
+| `caddy validate` fails otherwise | Usually a typo in the host name or a hash pasted incompletely. The error names the line. `caddy fmt --overwrite /etc/caddy/Caddyfile` also fixes indentation. |
+| The right password gets 401 | The placeholder hash is still in the Caddyfile: `grep REPLACE /etc/caddy/Caddyfile`. Run `caddy hash-password`, paste the result, reload. |
+| `mini-redis-web` keeps restarting, log says "ERROR on binding ... to port 7681" | Ubuntu's own `ttyd` service holds the port: `sudo systemctl disable --now ttyd && sudo systemctl restart mini-redis-web`. |
 | Terminal opens, says "Could not connect to 127.0.0.1:6379" | The server is down: `systemctl status mini-redis`, then `journalctl -u mini-redis`. |
-| Server keeps restarting | It hit `MemoryMax`, or the AOF is corrupt. Check `journalctl -u mini-redis`. To start clean: `sudo systemctl stop mini-redis && sudo rm /var/lib/mini-redis/appendonly.aof && sudo systemctl start mini-redis`. |
+| Server is "failed", log says "Start request repeated too quickly" | It was killed 5 times in 2 minutes: usually the AOF holds more data than `MemoryMax`, so every replay gets killed (`code=killed, status=9/KILL` in `journalctl -u mini-redis`), or the AOF is corrupt. Start clean, **including `reset-failed`**, without which systemd refuses to start it: `sudo systemctl stop mini-redis; sudo rm /var/lib/mini-redis/appendonly.aof; sudo systemctl reset-failed mini-redis && sudo systemctl start mini-redis`. Or keep the data and raise `MemoryMax`. |
 
 ### Is a public demo safe?
 
