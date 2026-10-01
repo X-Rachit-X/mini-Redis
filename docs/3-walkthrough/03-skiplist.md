@@ -72,12 +72,11 @@ With a 1/4 chance per level, reaching level 32 needs about 4^31 elements, which 
     Node* head_;
     int level_ = 1;
     size_t length_ = 0;
-    std::mt19937 rng_{12345};
 };
 ```
 - `head_` is a **sentinel** (dummy) node with all 32 levels. It's never a real element, but it means every real node always has a predecessor on every level, so no special case is needed for "insert at the front".
 - `level_` is how many levels are actually in use (searches start there, not at 32).
-- `std::mt19937` is a good pseudo-random generator. The **fixed seed** means the same inserts always build the same shape, so bugs are reproducible.
+- There is deliberately **no random generator member**. It lives inside `random_level()` instead (see below). An earlier version had `std::mt19937 rng_{12345};` here, which made every key in the database cost ~5 KB. The story is in [Layer 7, known issue #1](../7-defense-guide.md#known-issue-1-every-key-cost-about-5-kb-fixed).
 
 ---
 
@@ -109,13 +108,16 @@ Level 0 contains every node, so walk it and free each one. `next` is saved **bef
 
 ```cpp
 int SkipList::random_level() {
+    static std::mt19937 rng(12345);
     std::uniform_real_distribution<double> coin(0.0, 1.0);
     int level = 1;
-    while (level < MAX_LEVEL && coin(rng_) < LEVEL_UP_PROBABILITY) level++;
+    while (level < MAX_LEVEL && coin(rng) < LEVEL_UP_PROBABILITY) level++;
     return level;
 }
 ```
 Flip a biased coin until it fails, counting heads. That's a geometric distribution.
+- `std::mt19937` is a good pseudo-random generator. The **fixed seed** means the same sequence of inserts always builds the same shape, so bugs are reproducible.
+- `static` inside the function means **one generator shared by every skip list**, created the first time any list needs a level. Why not a member? An `mt19937` carries about 5 KB of state. As a member, it made every `SortedSet` 5 KB. Because `Value` is a `std::variant` (always as big as its largest alternative), that made **every key** 5 KB, even a one-byte string. Shared, it costs 5 KB once for the whole process. Levels only need to be random, not independent per list, so sharing is safe. The server is single-threaded, so there's no data race on it either.
 
 ```cpp
 bool SkipList::comes_before(const Node* node, double score, const std::string& member) {

@@ -48,7 +48,7 @@ It runs every registered test, prints PASS/FAIL per test and a summary, and retu
 | File | Main ideas tested |
 |---|---|
 | `test_resp_parser.cpp` | complete parse; **every prefix of a command is Incomplete** (simulates TCP splitting it at every possible byte); pipelined commands; values containing `\r\n`; inline commands; 5 kinds of malformed input; empty arrays |
-| `test_database.cpp` | lazy expiry deletes on access; active expiry respects its limit; `create` clears an old TTL *and* its index entry; rename moves the value and TTL; past expiry deletes; glob matching |
+| `test_database.cpp` | lazy expiry deletes on access; active expiry respects its limit; `create` clears an old TTL *and* its index entry; rename moves the value and TTL; past expiry deletes; glob matching; **`entries_stay_small`**: `sizeof(Value)` and `sizeof(Entry)` stay ≤ 256 bytes (it guards against the bug where a 5 KB random generator inside `SkipList` made every key cost 5 KB) |
 | `test_sorted_set.cpp` | basics; tie-breaking by member; **randomized model test**: 20 000 random add/update/remove operations, comparing range, rank and size against `std::set` every 500 ops |
 | `test_commands.cpp` | exact RESP bytes for each command group; WRONGTYPE; arity errors; NX/XX/EX/PX; overflow; negative indexes; empty containers deleted; a ZADD with a bad score changes nothing; regression tests for old bugs (DEL count, SET clearing TTL) |
 | `test_aof.cpp` | log + replay restores all 4 types; read-only and no-op commands aren't logged; EX is stored as PEXPIREAT; truncated tail repaired; corrupt file rejected; REWRITEAOF shrinks the file, and writes after it still persist |
@@ -86,9 +86,11 @@ double time_ms(Work work) {
 ```
 Times any lambda. For measuring durations we use `steady_clock` (it never jumps), unlike the wall clock used for TTLs.
 
-1. **vector vs deque push_front**: shows why lists use deque (~1000× faster at 50k elements).
-2. **Parser throughput**: 1M pipelined `SET`s parsed in ~25 ms, so parsing is never the bottleneck.
-3. **Skip list rank vs std::set**: `std::set` can only compute rank by walking (`std::distance`, O(n)), while the span skip list does it in O(log n). That's ~6000× faster at 200k members.
+1. **vector vs deque push_front**: shows why lists use deque (roughly 1 000-3 700× faster at 50k elements, depending on the machine).
+2. **Parser throughput**: 1M pipelined `SET`s parsed in roughly 25-60 ms (17-39 M commands/s), so parsing is never the bottleneck.
+3. **Skip list rank vs std::set**: `std::set` can only compute rank by walking (`std::distance`, O(n)), while the span skip list does it in O(log n). That's roughly 3 800-6 000× faster at 200k members.
+
+The ranges come from two machines (a WSL2 laptop and a 4-core cloud VM). Exact times vary; the orders of magnitude don't. See the [defense guide](../7-defense-guide.md#2-verified-facts-measured-not-copied) for the latest measured numbers.
 
 `long sink` accumulates results so the optimizer can't delete the "unused" work.
 

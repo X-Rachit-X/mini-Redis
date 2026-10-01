@@ -65,5 +65,4 @@ private:
     Node* head_;        // dummy node before the first real node, has MAX_LEVEL levels
     int level_ = 1;     // number of levels currently in use
     size_t length_ = 0;
-    std::mt19937 rng_{12345};  // fixed seed: same shape every run, easier to debug
 };

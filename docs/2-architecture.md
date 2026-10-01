@@ -200,7 +200,7 @@ else REPL: prompt only if stdin is a terminal (isatty), so piping works
 | **Incremental parser that re-parses from the start of an incomplete command** | Very simple code with no parser state machine. Headers are tiny and bulk bodies are never scanned (we jump by length). | A huge command arriving in many pieces re-reads its headers each time (still cheap) |
 | **Size limits** (1M args, 512 MB bulk, 64 KB header, 1 GB buffer) | One bad client can't exhaust memory | Limits instead of unlimited input (Redis has the same ones) |
 | **`std::variant` value + one map** instead of 3 maps (old design) | A key has exactly one type, so `TYPE` and `WRONGTYPE` are correct automatically. One lookup per command. | Must check the type on every access (`find_typed<T>`) |
-| **`std::deque` for lists** | O(1) push/pop at both ends. A vector's `insert(begin())` is O(n) (≈1000× slower in our benchmark). | Slightly more memory than a vector |
+| **`std::deque` for lists** | O(1) push/pop at both ends. A vector's `insert(begin())` is O(n) (over 1000× slower in our benchmark). | Slightly more memory than a vector |
 | **Skip list with spans + hash map** for sorted sets | O(log n) insert/remove/rank/range, O(1) score lookup. Simpler than a balanced tree with rank. Same as Redis. | Two structures to keep in sync. Members are stored twice. |
 | **Expiry index `std::set<(time,key)>`** | Active expiry costs only as much as the keys that actually expired, and it's exact | Extra memory per key with a TTL. Redis instead *samples* 20 random keys to save memory. |
 | **Absolute times (`system_clock`) for TTLs** | Survive restarts. The AOF uses absolute times. | If the system clock jumps, TTLs jump too (Redis has the same issue) |
@@ -232,7 +232,7 @@ else REPL: prompt only if stdin is a terminal (isatty), so piping works
 | Thread-per-client and a growing `threads` vector | epoll event loop |
 | SIGPIPE could kill the server | Ignored, plus `MSG_NOSIGNAL` |
 | Client called `recv()` per byte | 16 KB buffered reader |
-| No tests | 31 unit tests + 34 e2e checks, sanitizers, CI |
+| No tests | 32 unit tests + 35 e2e checks, sanitizers, CI |
 
 ---
 

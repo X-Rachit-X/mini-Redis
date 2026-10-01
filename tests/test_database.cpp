@@ -85,3 +85,11 @@ TEST(glob_patterns) {
     CHECK(!glob_match("*a*b", "xxaxxbxx"));
     CHECK(glob_match("", ""));
 }
+
+// Every key holds an Entry, and a std::variant is as big as its largest
+// alternative. A member that quietly grows one type (an std::mt19937 inside
+// SkipList once made EVERY key ~5 KB) must fail here, not in production.
+TEST(entries_stay_small) {
+    CHECK(sizeof(Value) <= 256);
+    CHECK(sizeof(Entry) <= 256);
+}

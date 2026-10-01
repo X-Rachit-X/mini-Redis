@@ -186,7 +186,7 @@ Any unknown flag prints the usage and exits with code 1.
 | `MAX_EXPIRE_AMOUNT` | 10¹² | `command_helpers.h:21` | stops `now + amount × 1000` overflowing |
 | `MAX_LEVEL` | 32 | `skiplist.h:59` | skip list height cap (enough for 4³² ≈ 10¹⁹ members) |
 | `LEVEL_UP_PROBABILITY` | 0.25 | `skiplist.cpp:7` | ≈1.33 levels per node on average (Redis: same) |
-| RNG seed | 12345 | `skiplist.h:68` | reproducible shapes |
+| RNG seed | 12345 | `skiplist.cpp:30` (`random_level`) | reproducible shapes. One generator shared by all lists |
 | listen backlog | `SOMAXCONN` | `net.cpp:43` | pending connections queue |
 | client read buffer | 16 KB | `client/reply_reader.cpp:23` | one `recv()` per 16 KB |
 

@@ -209,14 +209,14 @@ The concepts go from basic to advanced, so you can also read it as a C++ course 
 
 ### Default member initializers
 - **In plain words**: giving a member its starting value right where it's declared: `int fd = -1;`.
-- **In this project**: `connection.h` (`fd = -1`, `output_sent = 0`), `config.h` (all defaults), `skiplist.h:66-68` (`level_ = 1`, `rng_{12345}`).
+- **In this project**: `connection.h` (`fd = -1`, `output_sent = 0`), `config.h` (all defaults), `skiplist.h:66-67` (`level_ = 1`, `length_ = 0`).
 - **Why here**: every constructor automatically starts from safe values. `Config config;` in `main.cpp` *is* "the defaults" without any extra code.
 
 ### Brace initialization `{}`
 - **In plain words**: `T x{};` creates `x` with every member set to zero/empty.
 - **In this project**: `sockaddr_in addr{};` (`net.cpp:33`), `epoll_event event{};`, `struct sigaction action {};`, `addrinfo hints{};`.
 - **Why here**: these are C structs with many fields. Without `{}` the unused fields would contain random garbage, and the kernel may read them.
-- **Also**: `Node{member, score, std::vector<Level>(new_level)}` (`skiplist.cpp:64`) fills a struct's fields in order. `return {name, function};` builds the return value from a list.
+- **Also**: `Node{member, score, std::vector<Level>(new_level)}` (`skiplist.cpp:69`) fills a struct's fields in order. `return {name, function};` builds the return value from a list.
 
 ### Default arguments
 - **In plain words**: a parameter can have a value that's used when the caller leaves it out.
@@ -319,7 +319,7 @@ This is a subtle point most people miss. It is verified with `std::is_move_const
 
 ### `new` and `delete` (manual memory)
 - **In plain words**: `new` creates an object on the heap and returns a pointer. You must `delete` it exactly once later.
-- **In this project**: only in the skip list (`skiplist.cpp:12, 64, 104, 20`). Everything else uses containers and smart pointers.
+- **In this project**: only in the skip list (`skiplist.cpp:12, 69, 109, 20`). Everything else uses containers and smart pointers.
 - **Why here**: each node has a different number of levels and is linked from several other nodes. That's a graph, which smart pointers handle poorly (and `shared_ptr` would cost memory and speed). Because the code is contained in one class with deleted copying, ASan, and a randomized test, manual memory is defensible.
 - **Watch out**: forgetting `delete` leaks memory. Deleting twice corrupts the heap. Using after `delete` reads garbage. All three are caught by AddressSanitizer in CI.
 
@@ -354,7 +354,7 @@ This is a subtle point most people miss. It is verified with `std::is_move_const
 ### `std::deque`
 - **In plain words**: like a vector, but fast to add and remove at **both** ends. It's stored as several fixed-size blocks.
 - **In this project**: `using List = std::deque<std::string>;` (`database.h:14`).
-- **Why here**: `LPUSH`/`LPOP` work at the front. `vector::insert(begin())` shifts every element. The micro benchmark shows deque is about 1000-3500× faster for 50 000 front-pushes (exact numbers vary by machine).
+- **Why here**: `LPUSH`/`LPOP` work at the front. `vector::insert(begin())` shifts every element. The micro benchmark shows deque is about 1000-3700× faster for 50 000 front-pushes (exact numbers vary by machine).
 - **Watch out**: erasing in the middle (`LREM`) is still O(n), and invalidates iterators. See [iterators](#iterators-and-iterator-invalidation).
 
 ### `std::unordered_map`
@@ -398,7 +398,7 @@ This is a subtle point most people miss. It is verified with `std::is_move_const
   - `value.index()` gives 0..3, which `type_name()` maps to "string", "list", "hash", "zset" (`database.cpp:7`).
   - `value.emplace<T>()` switches the type.
 - **Why here**: one key can only ever have one type. The old design had separate maps per type, so a key could be a string *and* a list at once. With `variant` that state can't exist, and `WRONGTYPE` checking becomes one line.
-- **Watch out**: a variant is as big as its **largest** alternative. Here that's `SortedSet` at about 5 KB (because of `std::mt19937`), so *every* key costs about 5 KB, even a tiny string. See [known issue #1](7-defense-guide.md#known-issue-1-every-key-costs-about-5-kb). The usual fix is to store big, rare alternatives behind a pointer (`std::unique_ptr<SortedSet>`).
+- **Watch out**: a variant is as big as its **largest** alternative. This project learned that the hard way: `SortedSet` used to contain a ~5 KB `std::mt19937`, so `sizeof(Value)` was 5088 bytes and **every key** cost ~5 KB, even a tiny string. Moving the generator out (a shared function-local `static`) brought `sizeof(Value)` down to 88 bytes. The test `entries_stay_small` now guards against it coming back. See [known issue #1](7-defense-guide.md#known-issue-1-every-key-cost-about-5-kb-fixed). The general fix for a big, rare alternative is to store it behind a pointer (`std::unique_ptr<SortedSet>`).
 
 ### `std::from_chars` / `std::to_chars` (C++17)
 - **In plain words**: the fastest standard way to convert text ↔ numbers. No locale, no exceptions, no memory allocation. They report errors through a result struct.
@@ -415,8 +415,8 @@ This is a subtle point most people miss. It is verified with `std::is_move_const
 
 ### `<random>`: `mt19937` and distributions
 - **In plain words**: `std::mt19937` is a high-quality pseudo-random generator (the "Mersenne Twister"). A distribution shapes its raw output, for example `uniform_real_distribution(0.0, 1.0)` gives evenly spread doubles.
-- **In this project**: the skip list's `random_level()` (`skiplist.cpp:25-30`) "flips a coin" with probability 1/4 per extra level. It's seeded with a fixed `12345` so the list has the same shape every run (easier debugging). The randomized test uses `mt19937 rng(42)` so failures are reproducible.
-- **Watch out**: an `mt19937` object holds about 5 KB of internal state. Embedding one in every `SkipList` is the root of [known issue #1](7-defense-guide.md#known-issue-1-every-key-costs-about-5-kb). A single shared generator would do the job.
+- **In this project**: the skip list's `random_level()` (`skiplist.cpp:25-35`) "flips a coin" with probability 1/4 per extra level. Its generator is a function-local `static std::mt19937 rng(12345)`: one generator shared by all lists, with a fixed seed so the shapes are the same every run (easier debugging). The randomized test uses `mt19937 rng(42)` so failures are reproducible.
+- **Watch out**: an `mt19937` object holds about 5 KB of internal state. Don't put one inside a type you create millions of. That mistake was [known issue #1](7-defense-guide.md#known-issue-1-every-key-cost-about-5-kb-fixed) in this project, until the generator became a single shared `static`.
 
 ### Floating-point specials: `inf` and `NaN`
 - **In plain words**: `double` can be `+inf`, `-inf`, or `NaN` ("not a number"). `NaN` is not equal to anything, *including itself*.
@@ -461,7 +461,7 @@ This is a subtle point most people miss. It is verified with `std::is_move_const
 
 ### Function-local `static` ("magic statics")
 - **In plain words**: a `static` variable inside a function is created the **first time** the function runs and then lives until the program ends. Since C++11, this first-time creation is guaranteed to happen exactly once, even with threads.
-- **In this project**: the command table (`commands.cpp:10`); `all_tests()` and `failure_count()` in `test_framework.h`.
+- **In this project**: the command table (`commands.cpp:10`); the skip list's shared random generator (`static std::mt19937 rng(12345);` in `random_level()`, `skiplist.cpp`); `all_tests()` and `failure_count()` in `test_framework.h`.
 - **Why here**: the table is built on first use, with no global-initialisation-order problems. The test registry *must* work this way, because tests register themselves before `main()` runs (see [self-registering tests](#self-registering-tests-static-initialization)).
 
 ### `inline` variables and functions (C++17)

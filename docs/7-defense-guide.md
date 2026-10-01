@@ -42,38 +42,49 @@ These numbers were reproduced by actually building and running the project (4-co
 | Fact | Value | How to reproduce |
 |---|---|---|
 | Commands implemented | **53** | `grep -h 'table\["' server/cmd_*.cpp \| wc -l` |
-| Unit tests | **31/31 pass** (also under ASan + UBSan) | `make test`, `make SAN=1 test` |
-| End-to-end checks | **34**, plus **1** more when the official `redis-cli` is installed (35 total) | `make e2e-test` |
-| Lines of C++ (server + client, incl. comments) | about 3 100 | `wc -l server/* client/*` |
-| `LPUSH` ×50 000: vector vs deque | 5132 ms vs 1.5 ms (**~3500×**) | `make microbench` |
-| RESP parse, 1M pipelined `SET`s | 9.2 M commands/s, ~410 MB/s | `make microbench` |
-| `ZRANK` ×200 on 200 000 members: skip list vs `std::set` walk | 0.85 ms vs 3976 ms (**~4700×**) | `make microbench` |
-| `sizeof(Value)` / `sizeof(Entry)` | **5088 / 5096 bytes** | see [known issue #1](#known-issue-1-every-key-costs-about-5-kb) |
-| RSS after 100 000 `SET kN v` (no AOF) | **~505 MB** (~5 KB per key) | see [known issue #1](#known-issue-1-every-key-costs-about-5-kb) |
-| Same, after the one-line fix | **~21 MB** (~170 B per key) | see [known issue #1](#known-issue-1-every-key-costs-about-5-kb) |
+| Unit tests | **32/32 pass** (also under ASan + UBSan) | `make test`, `make SAN=1 test` |
+| End-to-end checks | **35/35 pass** (34 when the official `redis-cli` isn't installed, since its compatibility check is skipped) | `make e2e-test` |
+| Lines of C++ (server + client, incl. comments) | about 3 100 | `cat server/* client/* \| wc -l` |
+| `LPUSH` ×50 000: vector vs deque | ~5 000 ms vs ~1.5 ms (**~3 200-3 700×**, 3 runs) | `make microbench` |
+| RESP parse, 1M pipelined `SET`s | **~17.6 M commands/s**, ~790 MB/s | `make microbench` |
+| `ZRANK` ×200 on 200 000 members: skip list vs `std::set` walk | ~1 ms vs ~4 000 ms (**~3 800-4 400×**, 3 runs) | `make microbench` |
+| `sizeof(Value)` / `sizeof(Entry)` | **88 / 96 bytes** (were 5088 / 5096 before the fix) | see [known issue #1](#known-issue-1-every-key-cost-about-5-kb-fixed) |
+| Memory added by 100 000 `SET kN v` | **~17 MB, 175 B per key** (was ~490 MB). Real Redis: ~9 MB, 93 B per key | see [known issue #1](#known-issue-1-every-key-cost-about-5-kb-fixed) |
+| Memory with ~630 000 keys (`redis-benchmark -r 1000000`) | mini-redis **121 MB**, Redis **75 MB** (1.6×) | see the table below |
 
-The README's micro benchmark figures (~1000×, ~39 M cmds/s, ~6000×) came from a different machine (WSL2). The *ratios* are the point: deque and the skip list win by three orders of magnitude on any machine. Quote your own measurements.
+Your README's original micro benchmark figures (~1000×, ~39 M cmds/s, ~6000×) came from a WSL2 laptop. The *ratios* are the point: deque and the skip list win by three orders of magnitude on every machine tried. Quote your own measurements.
 
 ### Throughput vs real Redis (`redis-benchmark`)
 
-Measured on the same 4-core VM: Redis 7.0.15 vs mini-redis, both single-threaded with persistence off, 50 000 requests per test, client on the same machine.
+Both servers single-threaded with persistence off, on the same 4-core VM, Redis 7.0.15, with the client on the same machine. Measured after the memory fix.
 
-| Scenario | mini-redis as % of Redis (SET / GET / INCR / LPUSH / RPOP / HSET / ZADD) | mini-redis req/s range |
+**A. `make benchmark`: one hot key** (200 000 requests per test; the default `redis-benchmark` key pattern)
+
+| Scenario | mini-redis as % of Redis (SET / GET / INCR / LPUSH / RPOP / HSET / ZADD) | mini-redis req/s |
 |---|---|---|
-| 1 client, no pipeline | about 100% across the board (100-107%) | ~13-14 k |
-| 1 client, pipeline 16 | 91-122% | ~160-235 k |
-| 50 clients, no pipeline | 80-107% | ~48-60 k |
-| 50 clients, pipeline 16 | 81-161% | ~650-770 k |
+| 1 client, no pipeline | 114 / 110 / 101 / 102 / 108 / 91 / 101 % | ~13-15 k |
+| 1 client, pipeline 16 | 112 / 89 / 79 / 109 / 127 / 131 / 131 % | ~165-230 k |
+| 50 clients, no pipeline | 86 / 97 / 81 / 79 / 84 / 93 / 95 % | ~50-58 k |
+| 50 clients, pipeline 16 | 92 / 91 / 118 / 113 / 137 / 74 / 102 % | ~635-920 k |
+
+**B. Many keys: `redis-benchmark -t set,get -n 1000000 -r 1000000 -c 50 -P 16`** (about 630 000 distinct keys, 3 runs)
+
+| | mini-redis | Redis 7.0.15 | mini / Redis |
+|---|---|---|---|
+| SET | 306-332 k req/s | 382-460 k req/s | **~67-87%** |
+| GET | 368-489 k req/s | 508-581 k req/s | **~67-84%** |
+| Memory added | 121 MB | 75 MB | **1.6×** |
 
 **How to read this honestly** (say this if you quote the numbers):
-- It's the **same order of magnitude** as Redis, which is what a correct epoll design should give. It does **not** mean "faster than Redis". Results swing ±20% between runs on a shared VM, and the client competes with the server for the same 4 cores.
-- `redis-benchmark` without `-r` uses **one single key** (`key:__rand_int__` literally). That's the best case: no hash-table growth and no memory pressure. It completely hides [known issue #1](#known-issue-1-every-key-costs-about-5-kb). Re-run with `-r 1000000` to touch a million keys and watch mini-redis's memory.
-- Real Redis does extra work per command (statistics, keyspace notifications, client tracking, latency monitoring) that mini-redis skips.
-- Where Redis wins (50 clients, no pipeline): Redis has years of tuning in its networking path.
-- Reproduce: `make benchmark`, after the readiness-probe fix in [known issue #11](#known-issue-11-make-benchmark-can-hang-forever).
+- **One hot key (A)**: within roughly ±25% of Redis, sometimes ahead. A single-key test is the best case: no hash-table growth and no memory pressure. Single runs swing ±20% on a shared VM.
+- **Many keys (B)** is the realistic test, and **Redis wins clearly** (mini-redis at roughly two-thirds to four-fifths of its speed). The likely reasons, which are good interview material:
+  - `std::unordered_map` rehashes **the whole table at once** when it grows, a pause that grows with the keyspace. Redis rehashes **incrementally**, a few buckets per operation.
+  - Every key costs several separate heap allocations (map node, key string, value string beyond 15 bytes). Redis uses jemalloc and compact embedded strings, so it also uses ~1.6× less memory.
+  - Redis has years of tuning in its I/O path.
+- Real Redis also does extra work per command (statistics, keyspace notifications, client tracking) that mini-redis skips, so the comparison slightly favours mini-redis.
+- Reproduce A with `make benchmark` (fixed in [known issue #11](#known-issue-11-make-benchmark-could-hang-forever-fixed)) and B with the command above against each server.
 
-The single most defensible sentence: *"With the same redis-benchmark settings on the same machine, mini-redis is within roughly ±20% of Redis on simple commands, for a single hot key. I'd want to test with many keys before claiming more, and that test is where I found the 5 KB-per-key problem."*
-
+The most defensible sentence: *"On simple commands with one hot key it's within about ±25% of Redis. With 600 000 keys, Redis is about 1.2-1.5× faster and uses 1.6× less memory, mostly thanks to incremental rehashing and a tuned allocator. Those would be my next optimisations."*
 
 ---
 
@@ -92,7 +103,7 @@ Every claim from the README, with where it lives and how to prove it in front of
 | Single-threaded, so commands are atomic | `server.cpp:86-124` (no threads anywhere) | e2e 20 clients × 25 `INCR` = exactly 500 | run 20 parallel `redis-benchmark -t incr` jobs, then `GET` the counter |
 | One type per key, `WRONGTYPE` errors | `database.h:19` (`std::variant`), `command_helpers.h:39-47` | `wrong_type_is_reported` | `RPUSH l a` then `GET l` |
 | Empty containers disappear | `cmd_lists.cpp:49`, `cmd_hashes.cpp:70`, `cmd_zsets.cpp:69` | `empty_containers_are_deleted` | `RPUSH l a`, `LPOP l`, `EXISTS l` gives 0 |
-| Skip list with spans: O(log n) rank | `skiplist.cpp:112-128` | `sorted_set_matches_reference_model` (20 000 random ops vs `std::set`); microbench | `make microbench` |
+| Skip list with spans: O(log n) rank | `skiplist.cpp:117-133` | `sorted_set_matches_reference_model` (20 000 random ops vs `std::set`); microbench | `make microbench` |
 | Lazy + active expiry | `database.cpp:22-30`, `88-100`; `server.cpp:252-257` | `lazy_expiry_hides_and_deletes_keys`, `active_expiry_removes_untouched_keys` (fake clock) | `SET k v PX 100`, wait, `DBSIZE` drops without touching `k` |
 | AOF before reply | `server.cpp:175-179` | (ordering is by construction) | `strace -e write,sendto -p <pid>`: the AOF `write` comes before `sendto` |
 | Relative TTL logged as absolute | `aof.cpp:83-105` | `aof_logs_absolute_expiry_times` | `SET k v EX 100`, then `cat appendonly.aof` shows `PEXPIREAT` |
@@ -136,7 +147,7 @@ For each important decision: **what** was chosen, **why**, **how** it's implemen
 - **Alternatives rejected**:
   - *One map per type* (the old design): a key could exist in several maps, and every command needed several lookups.
   - *Inheritance* (`struct Value { virtual ~Value(); }`, `StringValue : Value` ...): a heap allocation per value, virtual calls, and `dynamic_cast` for type checks.
-- **Cost**: the variant is as large as its largest member. See [known issue #1](#known-issue-1-every-key-costs-about-5-kb), which is the most important thing in this whole guide.
+- **Cost**: the variant is as large as its largest member, so one bloated alternative inflates *every* key. That actually happened here: see [known issue #1](#known-issue-1-every-key-cost-about-5-kb-fixed), the most important lesson in this guide. Now `sizeof(Value)` is 88 bytes, guarded by a test.
 
 ### 4.5 `std::deque` for lists
 - **Why**: O(1) push and pop at both ends, O(1) random access for `LINDEX`/`LRANGE`.
@@ -210,7 +221,7 @@ n = number of keys (or elements in the container), m = number of items returned,
 These go past the standard ones in [Layer 4](4-presenting.md).
 
 **"How much memory does one key use?"**
-About 5 KB in the current code, which is a real problem. Then explain [known issue #1](#known-issue-1-every-key-costs-about-5-kb) and the fix. Turning a weakness into a measured fix is the best possible answer.
+About 175 bytes per small string key (measured: 100 000 keys add ~17 MB), against 93 bytes in real Redis. The `Entry` is 96 bytes; the rest is the key string, the hash-table node and allocator overhead. Then tell the story of [known issue #1](#known-issue-1-every-key-cost-about-5-kb-fixed): it used to be 5 KB, you measured it, found the cause, fixed it 30×, and added a regression test. Turning a weakness into a measured fix is the best possible answer.
 
 **"Prove INCR is atomic."**
 There's no thread that could interleave: `execute_command` runs `cmd_incr` from start to finish before the loop looks at any other socket. The e2e test fires 500 INCRs from 20 concurrent processes and gets exactly 500. With a thread-per-client design and no lock, you'd see lost updates.
@@ -251,23 +262,29 @@ The AOF is already a stream of data-changing commands in RESP. A replica connect
 
 Found by reading every line and measuring. Severity is for a production setting; for a learning project most are reasonable trade-offs. **Mentioning them yourself, with a fix, is a strength.**
 
-### Known issue #1: every key costs about 5 KB
-- **Severity**: high (memory).
-- **What**: `Value` is `std::variant<std::string, List, Hash, SortedSet>`. A variant always reserves room for its *largest* alternative. `SortedSet` contains a `SkipList`, which contains a `std::mt19937` random generator with ~5 KB of internal state. So `sizeof(Value)` is 5088 bytes, and **every key, even a 1-byte string, uses ~5 KB**.
-- **Evidence** (measured):
+### Known issue #1: every key cost about 5 KB (fixed)
+- **Status**: **fixed**, with a regression test. Kept here because it's the best story in the project.
+- **Severity before the fix**: high (memory).
+- **What it was**: `Value` is `std::variant<std::string, List, Hash, SortedSet>`. A variant always reserves room for its *largest* alternative. `SortedSet` contains a `SkipList`, which used to contain a member `std::mt19937 rng_` (a random generator with ~5 KB of internal state). So `sizeof(Value)` was 5088 bytes, and **every key, even a 1-byte string, used ~5 KB**.
+- **How it was found**: by measuring memory per key instead of assuming. Load 100 000 keys, compare RSS before and after:
+  ```bash
+  for i in $(seq 1 100000); do printf '*3\r\n$3\r\nSET\r\n$%d\r\nk%d\r\n$1\r\nv\r\n' $(( ${#i} + 1 )) $i; done > load.resp
+  ./bin/mini-redis-server --no-aof &   # note its pid
+  grep VmRSS /proc/<pid>/status; redis-cli --pipe < load.resp; grep VmRSS /proc/<pid>/status
   ```
-  sizeof(Value) = 5088, sizeof(Entry) = 5096        (std::string is 32, deque 80)
-  100 000 x SET kN v  ->  RSS ~505 MB   (real Redis: roughly 10 MB)
+- **The fix**: one generator shared by all skip lists. The member was removed from `skiplist.h`, and `random_level()` now has `static std::mt19937 rng(12345);` (`skiplist.cpp:30`).
+- **Before and after** (measured on the same machine; real Redis measured the same way for reference):
   ```
-  Reproduce: `printf` 100k RESP `SET`s into a file, pipe it with `redis-cli --pipe`, then `grep VmRSS /proc/<pid>/status`.
-- **Fix (verified)**: make the generator shared instead of per-list. In `skiplist.h` remove the `rng_` member; in `skiplist.cpp` put `static std::mt19937 rng_{12345};` at the top of `random_level()`. Results, measured on a scratch copy:
+                         sizeof(Value)  sizeof(Entry)  memory added by 100 000 x SET kN v
+  before (rng_ member)       5088           5096        ~490 MB   (~5 KB per key)
+  after  (shared static)       88             96         ~17 MB   (175 B per key)
+  real Redis 7.0.15            -              -           ~9 MB   (93 B per key)
   ```
-  sizeof(Value) = 88, sizeof(Entry) = 96
-  100 000 x SET kN v  ->  RSS ~21 MB      (about 25x less), 31/31 tests still pass
-  ```
-  The trade-off: all sorted sets now share one random sequence. That doesn't matter for correctness, because levels only need to be random, not independent per list. (A function-local `static` isn't thread-safe to *use* concurrently, but the server is single-threaded.)
-- **Alternative fix**: store the big, rare alternative behind a pointer, `std::variant<std::string, List, Hash, std::unique_ptr<SortedSet>>`. That also makes `Entry` movable.
-- **Interview line**: *"I measured memory per key and found 5 KB. The cause was a 5 KB RNG inside the variant's largest alternative. Making it shared dropped memory 25×."* This shows you understand `sizeof`, variants, and measurement-driven engineering.
+  About **30× less memory**, now within 2× of real Redis. All tests pass, including under ASan + UBSan.
+- **Why sharing is safe**: levels only need to be random, not independent per list. The fixed seed still makes shapes reproducible for the same sequence of inserts. A function-local `static` isn't safe to *use* from several threads at once, but the server is single-threaded.
+- **Regression guard**: the test `entries_stay_small` (`tests/test_database.cpp`) checks `sizeof(Value) <= 256` and `sizeof(Entry) <= 256`. Re-adding the member makes it fail at exactly those lines (verified).
+- **Alternative fix**: store the big, rare alternative behind a pointer, `std::variant<std::string, List, Hash, std::unique_ptr<SortedSet>>`. That also makes `Entry` movable, at the cost of one extra allocation per sorted set.
+- **Interview line**: *"I measured memory per key and found 5 KB for a one-byte value. The cause was a 5 KB random generator inside the variant's largest alternative: a variant is always as big as its biggest member. Sharing the generator cut memory 30×, to within 2× of Redis, and I added a test that fails if a value type grows again."* This shows you understand `sizeof`, variants, and measurement-driven engineering.
 
 ### Known issue #2: output buffers are unbounded
 - **Severity**: medium (memory exhaustion by one client).
@@ -286,8 +303,8 @@ Found by reading every line and measuring. Severity is for a production setting;
 
 ### Known issue #5: blocking work on the event loop
 - **Severity**: medium at scale.
-- **What**: `REWRITEAOF` builds the whole new file in memory and writes it synchronously. `KEYS *` walks every key. `load_aof` reads the whole file into one string (so startup memory briefly doubles). `FLUSHALL` frees everything in one go.
-- **Fix**: rewrite in a `fork()`ed child (copy-on-write snapshot) while the parent buffers new writes and appends them when the child finishes. Replace `KEYS` with an incremental `SCAN`. Stream the AOF during load.
+- **What**: `REWRITEAOF` builds the whole new file in memory and writes it synchronously. `KEYS *` walks every key. `load_aof` reads the whole file into one string (so startup memory briefly doubles). `FLUSHALL` frees everything in one go. And `std::unordered_map` **rehashes the whole keyspace at once** when it grows: with millions of keys, one `SET` that triggers growth pauses every client (likely part of why Redis pulls ahead in the many-keys benchmark; profile before claiming it).
+- **Fix**: an incremental-rehash hash table (two tables, move a few buckets per operation, like Redis's `dict`); rewrite in a `fork()`ed child (copy-on-write snapshot) while the parent buffers new writes and appends them when the child finishes. Replace `KEYS` with an incremental `SCAN`. Stream the AOF during load.
 
 ### Known issue #6: `DBSIZE` counts logically expired keys
 - **Severity**: low (matches Redis).
@@ -313,17 +330,18 @@ These are features, not bugs; just know them so you never over-claim.
 - No line editing or history (redis-cli uses `linenoise`).
 - `ReplyReader` recursion depth isn't limited, so a malicious server sending deeply nested arrays could overflow the stack.
 
-### Known issue #10: small documentation mismatches
-- The README says "34 end-to-end checks"; with `redis-cli` installed there are 35 (the compatibility check is skipped otherwise). Both are correct in context.
-- README micro benchmark numbers are from one specific machine. Re-measure and quote your own.
+### Known issue #10: small documentation mismatches (resolved)
+- The README said "34 end-to-end checks"; with `redis-cli` installed there are 35 (its compatibility check is skipped otherwise). The README now says 35 and explains the 34.
+- The README's micro benchmark numbers came from one machine. It now shows the results from both machines, labelled.
 
-### Known issue #11: `make benchmark` can hang forever
-- **Severity**: low (tooling), but it bites exactly when you try to compare against Redis.
-- **What**: `bench/run_benchmarks.sh` waits for a server with `redis-benchmark -p PORT -n 1 -t ping_mbulk -q` in a loop, expecting it to *fail* while the server isn't up yet. But `redis-benchmark` 7.0.15 doesn't fail on a refused connection: it **spins at 100% CPU forever** (verified: `timeout 5 redis-benchmark -p 7999 -n 1 -t ping_mbulk -q` gets killed by the timeout). mini-redis usually starts before the first probe, so its half works. `redis-server` is slower to start, so the comparison hangs.
-- **Fix (verified, the full comparison then completes)**: probe with `redis-cli` instead, which fails fast:
+### Known issue #11: `make benchmark` could hang forever (fixed)
+- **Status**: **fixed**. `make benchmark` now completes against both servers (verified with the default 200 000 requests per test).
+- **What it was**: `bench/run_benchmarks.sh` waited for a server with `redis-benchmark -p PORT -n 1 -t ping_mbulk -q` in a loop, expecting it to *fail* while the server wasn't up yet. But `redis-benchmark` 7.0.15 doesn't fail on a refused connection: it **spins at 100% CPU forever** (verified: `timeout 5 redis-benchmark -p 7999 -n 1 -t ping_mbulk -q` gets killed by the timeout). mini-redis usually started before the first probe, so its half worked. `redis-server` starts more slowly, so the comparison hung.
+- **The fix**: probe with `redis-cli`, which fails fast (it comes from the same `redis-tools` package, so no new dependency):
   ```bash
   if redis-cli -p "$1" PING > /dev/null 2>&1; then return 0; fi
   ```
+- **Lesson**: a readiness check must *fail fast* when the thing isn't ready. Never assume a tool's behaviour on errors; test it.
 
 ---
 
