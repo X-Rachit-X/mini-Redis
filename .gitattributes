@@ -1,0 +1,2 @@
+# Always use Unix line endings (bash scripts break with Windows CRLF).
+* text=auto eol=lf

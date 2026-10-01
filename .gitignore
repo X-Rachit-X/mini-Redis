@@ -1,0 +1,5 @@
+build/
+bin/
+*.aof
+*.aof.rewrite.tmp
+bench/results/*.csv
