@@ -23,9 +23,14 @@ SkipList::~SkipList() {
 }
 
 int SkipList::random_level() {
+    // One generator shared by every skip list. An std::mt19937 holds ~5 KB of
+    // state; as a member it made SortedSet ~5 KB, and since a std::variant is
+    // as big as its largest alternative, EVERY key (even a short string) cost
+    // ~5 KB. Fixed seed: the same inserts always build the same shape.
+    static std::mt19937 rng(12345);
     std::uniform_real_distribution<double> coin(0.0, 1.0);
     int level = 1;
-    while (level < MAX_LEVEL && coin(rng_) < LEVEL_UP_PROBABILITY) level++;
+    while (level < MAX_LEVEL && coin(rng) < LEVEL_UP_PROBABILITY) level++;
     return level;
 }
 
