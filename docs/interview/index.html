@@ -1,0 +1,900 @@
+<title>mini-redis Talk Track</title>
+<meta name="description" content="Interview talk track for mini-redis: what to show, what to say, and the deep dives behind every hook.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* Layout: a protocol-trace console. Left rail = the talk as a numbered sequence,
+   main = the current stage split into "show" (what they see) and "say" (your script). */
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --sunken: #e3e8ee;
+  --fg: #17202b;
+  --muted: #586577;
+  --line: #cfd6df;
+  --accent: #1d56c4;
+  --accent-soft: #dce7fb;
+  --hook: #8a5200;
+  --hook-soft: #fbe9c8;
+  --good: #1f7a4d;
+  --bar-bad: #c2462e;
+  --font-display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e131a; --surface: #151c26; --sunken: #1c2532; --fg: #e3e9f1; --muted: #93a1b4;
+    --line: #2a3546; --accent: #7fa8ff; --accent-soft: #1b2a47; --hook: #f2b852; --hook-soft: #3a2c12;
+    --good: #5fd39a; --bar-bad: #ff7a5c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e131a; --surface: #151c26; --sunken: #1c2532; --fg: #e3e9f1; --muted: #93a1b4;
+  --line: #2a3546; --accent: #7fa8ff; --accent-soft: #1b2a47; --hook: #f2b852; --hook-soft: #3a2c12;
+  --good: #5fd39a; --bar-bad: #ff7a5c; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.6;
+  padding-inline: 16px; padding-block: 0 48px;
+}
+table { font-size: inherit; }
+h1, h2, h3 { font-family: var(--font-display); font-stretch: 80%; line-height: 1.15; text-wrap: balance; margin: 0; }
+code, pre, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+a { color: var(--accent); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 1180px; margin: 0 auto; }
+
+/* ---- top bar ---- */
+.topbar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+  margin-inline: -16px; padding: 10px 16px;
+}
+.topbar .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.brand h1 { font-size: 1.35rem; font-weight: 800; }
+.brand span { color: var(--muted); font-size: 0.85rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.seg button { background: var(--surface); border: 0; padding: 6px 12px; cursor: pointer; font-size: 0.85rem; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg); font-weight: 600; }
+.clock { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 0.9rem;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 2px 4px 2px 10px; font-variant-numeric: tabular-nums; }
+.clock button { border: 0; background: var(--sunken); border-radius: 4px; padding: 3px 9px; cursor: pointer; font-size: 0.8rem; }
+
+/* ---- wire strip ---- */
+.wire { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); overflow-x: auto; white-space: nowrap;
+  padding-block: 18px 6px; }
+.wire b { color: var(--accent); font-weight: 600; }
+
+/* ---- intro ---- */
+.intro { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 24px; padding-block: 8px 28px; }
+.intro p { margin: 0 0 10px; max-width: 64ch; }
+.method { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+.method h3 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; color: var(--muted); }
+.method ol { margin: 0; padding-left: 1.2em; }
+.method li { margin-bottom: 6px; }
+
+/* ---- talk: rail + stage ---- */
+.talk { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 24px; align-items: start; }
+.rail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 72px); display: flex; flex-direction: column; gap: 4px; }
+.rail h2 { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; font-family: var(--font-body); }
+.rail button {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; text-align: left;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius); padding: 7px 8px; cursor: pointer;
+}
+.rail button .n { font-family: var(--font-mono); color: var(--muted); font-size: 0.8rem; }
+.rail button .t { font-weight: 600; font-size: 0.92rem; line-height: 1.3; }
+.rail button .d { font-family: var(--font-mono); color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.rail button[aria-current="step"] { background: var(--surface); border-color: var(--line); }
+.rail button[aria-current="step"] .n { color: var(--accent); }
+.rail .total { margin-top: 8px; font-size: 0.8rem; color: var(--muted); padding-left: 8px; }
+
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.stage-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 18px 22px 14px; border-bottom: 1px solid var(--line); }
+.stage-head .eyebrow { font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.04em; }
+.stage-head h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 750; flex-basis: 100%; }
+.stage-head .goal { color: var(--muted); font-size: 0.95rem; }
+.stage-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.show, .say { padding: 20px 22px 24px; min-width: 0; }
+.say { border-left: 1px solid var(--line); background: var(--bg); }
+.label { font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 0 0 10px; }
+.say p { margin: 0 0 12px; max-width: 62ch; }
+.say p.line { font-size: 1.02rem; }
+.cue { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); }
+.hook { background: var(--hook-soft); color: var(--fg); border-bottom: 2px solid var(--hook); padding: 0 2px; border-radius: 2px; cursor: pointer; }
+.hook::after { content: " ↗"; color: var(--hook); font-size: 0.8em; }
+.notes { margin-top: 16px; border-top: 1px dashed var(--line); padding-top: 12px; display: grid; gap: 8px; }
+.note { font-size: 0.9rem; display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; }
+.note b { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hook); padding-top: 3px; }
+.note.tip b { color: var(--accent); }
+.note.avoid b { color: var(--bar-bad); }
+.stage-foot { display: flex; justify-content: space-between; gap: 10px; padding: 12px 22px; border-top: 1px solid var(--line); }
+.stage-foot button { background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 14px; cursor: pointer; }
+.stage-foot button:disabled { opacity: 0.4; cursor: default; }
+.stage-foot .kbd { color: var(--muted); font-size: 0.8rem; align-self: center; }
+
+/* ---- "show" visuals ---- */
+.big { font-family: var(--font-display); font-stretch: 78%; font-weight: 800; font-size: clamp(2rem, 5vw, 3.3rem); line-height: 1.02; }
+.lede { font-size: 1.1rem; margin: 12px 0 18px; max-width: 46ch; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.fact { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.fact .v { font-family: var(--font-display); font-stretch: 80%; font-weight: 750; font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.fact .k { font-size: 0.82rem; color: var(--muted); }
+
+.term { background: #0d1117; color: #d6dde6; border-radius: var(--radius); padding: 14px 16px; overflow-x: auto;
+  font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.55; margin: 0; white-space: pre; }
+.term .p { color: #7fa8ff; }
+.term .c { color: #8b97a8; }
+.term .o { color: #9be3b4; }
+
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.flow .box { border: 1px solid var(--line); background: var(--bg); border-radius: var(--radius); padding: 7px 10px; font-size: 0.85rem; line-height: 1.3; }
+.flow .box small { display: block; color: var(--muted); font-size: 0.74rem; }
+.flow .box.key { border-color: var(--accent); background: var(--accent-soft); }
+.flow .arr { color: var(--muted); font-family: var(--font-mono); }
+.loop { margin-top: 14px; border: 1px dashed var(--accent); border-radius: var(--radius); padding: 10px 12px; font-size: 0.85rem; }
+.loop b { color: var(--accent); }
+
+.tbl { overflow-x: auto; }
+.tbl table { border-collapse: collapse; width: 100%; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+.tbl th, .tbl td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.tbl th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.tbl td.num { text-align: right; font-family: var(--font-mono); }
+.small { font-size: 0.82rem; color: var(--muted); }
+
+.bars { display: grid; gap: 12px; }
+.bar { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 0.85rem; }
+.bar .track { position: relative; height: 22px; }
+.bar .fill { height: 100%; border-radius: 3px; background: var(--accent); min-width: 2px; }
+.bar .fill.bad { background: var(--bar-bad); }
+.bar .fill.ref { background: var(--muted); }
+.bar .val { font-family: var(--font-mono); font-size: 0.8rem; margin-top: 2px; display: block; }
+.code { background: var(--sunken); border-radius: var(--radius); padding: 10px 12px; overflow-x: auto; margin: 14px 0 0; font-family: var(--font-mono); font-size: 0.8rem; white-space: pre; }
+
+.menu { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.menu a { display: block; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; text-decoration: none; color: var(--fg); font-weight: 600; font-size: 0.92rem; background: var(--bg); }
+.menu a small { display: block; font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+
+/* ---- deep dives ---- */
+.section-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin: 44px 0 14px; }
+.section-title h2 { font-size: clamp(1.4rem, 2.6vw, 1.9rem); font-weight: 750; }
+.section-title p { margin: 0; color: var(--muted); max-width: 70ch; }
+.dives { display: grid; gap: 10px; }
+details.dive { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+details.dive > summary { list-style: none; cursor: pointer; padding: 14px 18px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; align-items: baseline; }
+details.dive > summary::-webkit-details-marker { display: none; }
+details.dive > summary .q { font-weight: 600; font-size: 1.02rem; }
+details.dive > summary .tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); }
+details.dive > summary .from { grid-column: 1 / -1; font-size: 0.82rem; color: var(--muted); }
+details.dive[open] > summary { border-bottom: 1px solid var(--line); }
+details.dive:target { border-color: var(--hook); }
+.dive-body { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+.dive-body .say { border-left: 0; border-right: 1px solid var(--line); }
+.dive-body .show { background: var(--surface); }
+.follow { margin: 0; padding-left: 1.1em; font-size: 0.92rem; }
+.follow li { margin-bottom: 8px; }
+.follow li span { display: block; color: var(--muted); }
+pre.sketch { background: var(--sunken); border-radius: var(--radius); padding: 12px 14px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; margin: 0 0 12px; }
+
+.rapid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+.qa { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; font-size: 0.92rem; }
+.qa b { display: block; margin-bottom: 4px; }
+
+.prep { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.prep .col { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; }
+.prep h3 { font-size: 1.05rem; margin-bottom: 8px; }
+.prep ul { margin: 0; padding-left: 1.1em; font-size: 0.92rem; }
+.prep li { margin-bottom: 6px; }
+
+/* ---- screen-share mode hides everything that's only for you ---- */
+body.share .private { display: none !important; }
+body.share .stage-body { grid-template-columns: minmax(0, 1fr); }
+body.share .dive-body { grid-template-columns: minmax(0, 1fr); }
+body.share .show { padding: 28px 32px 32px; }
+body.share .rail button .d, body.share .rail .total { display: none; }
+
+@media (max-width: 860px) {
+  .intro { grid-template-columns: minmax(0, 1fr); }
+  .talk { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  .rail h2, .rail .total { display: none; }
+  .rail button { grid-template-columns: auto auto; white-space: nowrap; }
+  .rail button .d { display: none; }
+  .stage-body, .dive-body { grid-template-columns: minmax(0, 1fr); }
+  .say { border-left: 0; border-top: 1px solid var(--line); }
+  .dive-body .say { border-right: 0; border-bottom: 1px solid var(--line); }
+  .bar { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .stage { transition: opacity 0.15s ease; }
+}
+</style>
+
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand"><h1>mini-redis</h1><span>interview talk track</span></div>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="Mode">
+        <button type="button" id="mode-rehearse" aria-pressed="true">Rehearse</button>
+        <button type="button" id="mode-share" aria-pressed="false">Screen-share</button>
+      </div>
+      <div class="clock private" aria-label="Talk stopwatch">
+        <span id="clock-time">0:00</span><span class="small">/ ~5:00</span>
+        <button type="button" id="clock-toggle">Start</button>
+        <button type="button" id="clock-reset">Reset</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="wire" aria-hidden="true"><b>*3</b>\r\n<b>$3</b>\r\nSET\r\n<b>$7</b>\r\nproject\r\n<b>$10</b>\r\nmini-redis\r\n  →  <b>+</b>OK\r\n</div>
+
+  <section class="intro private" aria-label="How to use this page">
+    <div>
+      <p><strong>Rehearse</strong> mode shows the full script. <strong>Screen-share</strong> mode (press <kbd>S</kbd>) hides your notes and keeps only the visuals, so you can share this tab in a video interview.</p>
+      <p>The main talk is six short stages, about five minutes in total. You'll rarely get through all six before the interviewer jumps in, and that's the goal. Every <span class="hook">highlighted phrase</span> is a hook: a specific, slightly surprising detail you mention without explaining. Click one to jump to the prepared answer it leads to.</p>
+      <p>Use your own numbers. The figures here come from the project's measurements on a 4-core VM. Re-run <code>make benchmark</code> on your machine and edit them if yours differ.</p>
+    </div>
+    <div class="method">
+      <h3>Plant, pause, pay off</h3>
+      <ol>
+        <li><strong>Plant</strong> a concrete detail ("every key cost five kilobytes").</li>
+        <li><strong>Pause.</strong> Finish the sentence and stop. Silence invites the question.</li>
+        <li><strong>Pay off</strong> with the deep dive you rehearsed below. You picked the battlefield.</li>
+      </ol>
+    </div>
+  </section>
+
+  <div class="talk">
+    <nav class="rail" aria-label="Talk stages">
+      <h2>The talk</h2>
+      <button type="button" data-go="0"><span class="n">01</span><span class="t">The opener</span><span class="d">0:30</span></button>
+      <button type="button" data-go="1"><span class="n">02</span><span class="t">Live proof</span><span class="d">1:00</span></button>
+      <button type="button" data-go="2"><span class="n">03</span><span class="t">Life of a command</span><span class="d">1:15</span></button>
+      <button type="button" data-go="3"><span class="n">04</span><span class="t">The numbers</span><span class="d">0:45</span></button>
+      <button type="button" data-go="4"><span class="n">05</span><span class="t">The 5 KB bug</span><span class="d">1:15</span></button>
+      <button type="button" data-go="5"><span class="n">06</span><span class="t">Close and invite</span><span class="d">0:20</span></button>
+      <p class="total">≈ 5 minutes if uninterrupted</p>
+    </nav>
+
+    <div>
+      <!-- 01 -->
+      <article class="stage" data-stage hidden>
+        <div class="stage-head">
+          <span class="eyebrow">01 · 30 seconds</span>
+          <h2>The opener</h2>
+          <span class="goal private">Goal: say what it is, prove it's real, and plant one irresistible detail.</span>
+        </div>
+        <div class="stage-body">
+          <div class="show">
+            <p class="label">On screen</p>
+            <div class="big">A Redis-compatible server, written from scratch in C++17.</div>
+            <p class="lede">The official <code>redis-cli</code> and <code>redis-benchmark</code> talk to it without knowing it isn't Redis.</p>
+            <div class="facts">
+              <div class="fact"><div class="v">1 thread</div><div class="k">epoll event loop, no locks</div></div>
+              <div class="fact"><div class="v">53</div><div class="k">commands across 4 data types</div></div>
+              <div class="fact"><div class="v">AOF</div><div class="k">append-only log, crash recovery</div></div>
+              <div class="fact"><div class="v">ASan + CI</div><div class="k">32 unit, 35 end-to-end tests</div></div>
+            </div>
+          </div>
+          <div class="say private">
+            <p class="label">Say</p>
+            <p class="line">"One project I'd like to show you is mini-redis. It's a Redis-compatible in-memory database I wrote from scratch in C++. It speaks the real <span class="hook" data-to="dd-parser">Redis wire protocol</span>, so the official redis-cli, and even Redis's own benchmark tool, talk to it without knowing it isn't Redis."</p>
+            <p class="line">"It runs on <span class="hook" data-to="dd-thread">a single thread with an epoll event loop</span>, the same model Redis uses. It has strings, lists, hashes and sorted sets, and it saves to disk with an append-only log."</p>
+            <p class="line">"What I learned the most from was measuring it against real Redis. At one point <span class="hook" data-to="dd-memory">every key was costing five kilobytes</span>, and tracking that down taught me more about C++ than writing the features did."</p>
+            <p class="cue">[stop here and let them react]</p>
+            <div class="notes">
+              <div class="note tip"><b>Tip</b><span>Learn these three paragraphs by heart. Everything after this can be conversational.</span></div>
+              <div class="note"><b>Expect</b><span>"Five kilobytes? Why?" Go to stage 05, or straight to the memory deep dive. "Why single-threaded?" Go to the event loop deep dive.</span></div>
+              <div class="note avoid"><b>Avoid</b><span>Opening with the tech list ("C++17, epoll, RESP, skip list..."). Say what it does first, then how.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="stage-foot"><button type="button" data-prev>← Back</button><span class="kbd private">← → to move · S to share</span><button type="button" data-next>Next →</button></div>
+      </article>
+
+      <!-- 02 -->
+      <article class="stage" data-stage hidden>
+        <div class="stage-head">
+          <span class="eyebrow">02 · 60 seconds</span>
+          <h2>Live proof</h2>
+          <span class="goal private">Goal: show, don't tell. Use the official tools, and survive a restart on camera.</span>
+        </div>
+        <div class="stage-body">
+          <div class="show">
+            <p class="label">On screen (or run it live)</p>
+<pre class="term"><span class="c"># terminal 1</span>
+<span class="p">$</span> ./bin/mini-redis-server
+<span class="o">mini-redis listening on 127.0.0.1:6379 (AOF appendonly.aof)</span>
+
+<span class="c"># terminal 2: the OFFICIAL client, not mine</span>
+<span class="p">$</span> redis-cli
+<span class="p">127.0.0.1:6379></span> ZADD board 300 carol 100 alice 200 bob
+<span class="o">(integer) 3</span>
+<span class="p">127.0.0.1:6379></span> ZRANGE board 0 -1 WITHSCORES
+<span class="o">1) "alice"
+2) "100"
+3) "bob"
+4) "200"
+5) "carol"
+6) "300"</span>
+<span class="p">127.0.0.1:6379></span> SET session abc EX 5
+<span class="o">OK</span>
+<span class="p">127.0.0.1:6379></span> GET board
+<span class="o">(error) WRONGTYPE Operation against a key holding the wrong kind of value</span>
+
+<span class="c"># Ctrl+C the server, start it again</span>
+<span class="o">Loaded 3 commands from appendonly.aof</span>
+<span class="p">127.0.0.1:6379></span> ZRANGE board 0 0
+<span class="o">1) "alice"</span></pre>
+          </div>
+          <div class="say private">
+            <p class="label">Say</p>
+            <p class="line">"Let me show you instead of describing it. This is my server, and here I'm using the official redis-cli, not my own client, because that's the honest test of compatibility."</p>
+            <p class="line">"A sorted set comes back ordered by score. That's backed by <span class="hook" data-to="dd-skiplist">a skip list that keeps a span on every link</span>, so it can answer 'what rank is alice' in log time."</p>
+            <p class="line">"This key expires in five seconds. And if I use a key as the wrong type, I get the same WRONGTYPE error Redis gives, because every key holds exactly one typed value."</p>
+            <p class="line">"Now I'll Ctrl+C the server. It <span class="hook" data-to="dd-durability">catches the signal, flushes the log and fsyncs it</span>, then exits. I start it again, it replays the log, and the data is back."</p>
+            <div class="notes">
+              <div class="note tip"><b>Tip</b><span>Have both terminals open and the server already built before the call. If live demos aren't possible, share this panel instead.</span></div>
+              <div class="note"><b>Expect</b><span>"What happens if it crashes in the middle of writing?" That's the durability deep dive, and a great question to get.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="stage-foot"><button type="button" data-prev>← Back</button><span class="kbd private">← → to move · S to share</span><button type="button" data-next>Next →</button></div>
+      </article>
+
+      <!-- 03 -->
+      <article class="stage" data-stage hidden>
+        <div class="stage-head">
+          <span class="eyebrow">03 · 75 seconds</span>
+          <h2>Life of a command</h2>
+          <span class="goal private">Goal: one picture that shows you understand the whole system, end to end.</span>
+        </div>
+        <div class="stage-body">
+          <div class="show">
+            <p class="label">On screen</p>
+            <div class="flow" role="img" aria-label="Request flow: socket, input buffer, RESP parser, command table, database, AOF, output buffer, socket">
+              <div class="box">socket<small>non-blocking</small></div><span class="arr">→</span>
+              <div class="box key">input buffer<small>per client</small></div><span class="arr">→</span>
+              <div class="box key">RESP parser<small>Ok · Incomplete · Error</small></div><span class="arr">→</span>
+              <div class="box">command table<small>name → handler, arity</small></div><span class="arr">→</span>
+              <div class="box">database<small>key → std::variant</small></div><span class="arr">→</span>
+              <div class="box key">AOF write<small>before the reply</small></div><span class="arr">→</span>
+              <div class="box">output buffer<small>EPOLLOUT if full</small></div><span class="arr">→</span>
+              <div class="box">socket</div>
+            </div>
+            <div class="loop"><b>epoll_wait</b> drives everything on one thread. Every 100 ms: delete expired keys. Every second: fsync the log.</div>
+            <div class="facts" style="margin-top:14px">
+              <div class="fact"><div class="v">16 KB</div><div class="k">read per event, fair to all clients</div></div>
+              <div class="fact"><div class="v">1 send</div><div class="k">for a whole pipeline of replies</div></div>
+            </div>
+          </div>
+          <div class="say private">
+            <p class="label">Say</p>
+            <p class="line">"Here's the life of one command. A single thread sits in epoll_wait. When a client's socket has data, I read up to 16 KB into that client's own input buffer."</p>
+            <p class="line">"That buffer matters because <span class="hook" data-to="dd-parser">TCP is a byte stream, not a message stream</span>. One read can hold half a command or fifty of them. The parser answers 'complete', 'need more bytes' or 'invalid', and I keep parsing until no complete command is left. That's also how pipelining works."</p>
+            <p class="line">"Each command is looked up in a hash table that gives its handler and how many arguments it takes. The data itself is a hash map from key to a std::variant, so a key has exactly one type."</p>
+            <p class="line">"If the command changed data, it goes into the append-only log, and <span class="hook" data-to="dd-durability">the log is written before the reply is sent</span>, so a client never sees OK for something that isn't logged. Replies go into an output buffer, and if the socket is full I ask epoll to tell me when it's writable again."</p>
+            <div class="notes">
+              <div class="note tip"><b>Tip</b><span>Point at each box as you say it. On a whiteboard, draw the boxes left to right, then the epoll loop around them.</span></div>
+              <div class="note"><b>Expect</b><span>"Why not one thread per client?" "What's level-triggered vs edge-triggered?" Both are in the event loop deep dive.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="stage-foot"><button type="button" data-prev>← Back</button><span class="kbd private">← → to move · S to share</span><button type="button" data-next>Next →</button></div>
+      </article>
+
+      <!-- 04 -->
+      <article class="stage" data-stage hidden>
+        <div class="stage-head">
+          <span class="eyebrow">04 · 45 seconds</span>
+          <h2>The numbers</h2>
+          <span class="goal private">Goal: show you measure honestly, including where you lose.</span>
+        </div>
+        <div class="stage-body">
+          <div class="show">
+            <p class="label">On screen</p>
+            <div class="tbl">
+              <table>
+                <thead><tr><th>redis-benchmark, same machine</th><th>mini-redis</th><th>vs Redis 7</th></tr></thead>
+                <tbody>
+                  <tr><td>1 hot key, 50 clients</td><td class="num">~50–58 k req/s</td><td class="num">79–97%</td></tr>
+                  <tr><td>1 hot key, 50 clients, pipeline 16</td><td class="num">~635–920 k req/s</td><td class="num">74–137%</td></tr>
+                  <tr><td>~630 000 distinct keys, SET</td><td class="num">306–332 k req/s</td><td class="num">~67–87%</td></tr>
+                  <tr><td>~630 000 distinct keys, GET</td><td class="num">368–489 k req/s</td><td class="num">~67–84%</td></tr>
+                  <tr><td>Memory for those keys</td><td class="num">121 MB</td><td class="num">75 MB (1.6×)</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="small">Both single-threaded, persistence off, 4-core VM. Single runs vary ±20%.</p>
+          </div>
+          <div class="say private">
+            <p class="label">Say</p>
+            <p class="line">"I benchmarked it with redis-benchmark against real Redis 7 on the same machine, both single-threaded, persistence off."</p>
+            <p class="line">"On simple commands with one hot key, it lands roughly level with Redis, between about 74 and 137 percent depending on the command. With pipelining it does several hundred thousand requests a second."</p>
+            <p class="line">"With six hundred thousand distinct keys, Redis pulls ahead, and uses 1.6 times less memory. I know why: Redis <span class="hook" data-to="dd-bench">grows its hash table incrementally and uses a tuned allocator</span>. Those would be my next optimisations."</p>
+            <div class="notes">
+              <div class="note avoid"><b>Avoid</b><span>"It's as fast as Redis." Say "within about 25% on simple workloads" and name where Redis wins. Admitting the loss is what makes the win believable.</span></div>
+              <div class="note"><b>Expect</b><span>"How did you make it a fair comparison?" Go to the benchmarking deep dive.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="stage-foot"><button type="button" data-prev>← Back</button><span class="kbd private">← → to move · S to share</span><button type="button" data-next>Next →</button></div>
+      </article>
+
+      <!-- 05 -->
+      <article class="stage" data-stage hidden>
+        <div class="stage-head">
+          <span class="eyebrow">05 · 75 seconds</span>
+          <h2>The 5 KB bug</h2>
+          <span class="goal private">Goal: your best story. Measurement → surprise → root cause → fix → guard.</span>
+        </div>
+        <div class="stage-body">
+          <div class="show">
+            <p class="label">On screen: memory per key, drawn to scale</p>
+            <div class="bars" role="img" aria-label="Memory per key: before the fix about 5 KB, after 175 bytes, real Redis 93 bytes">
+              <div class="bar"><span>Before the fix</span><div class="track"><div class="fill bad" style="width:100%"></div><span class="val">~5 000 B per key</span></div></div>
+              <div class="bar"><span>After the fix</span><div class="track"><div class="fill" style="width:3.5%"></div><span class="val">175 B per key (~30× less)</span></div></div>
+              <div class="bar"><span>Real Redis 7</span><div class="track"><div class="fill ref" style="width:1.9%"></div><span class="val">93 B per key</span></div></div>
+            </div>
+<pre class="code">using Value = std::variant&lt;std::string, List, Hash, SortedSet&gt;;
+//            sizeof(Value): 5088 bytes  →  88 bytes
+
+class SkipList {
+    ...
+    std::mt19937 rng_;   // ~5 KB of state, inside EVERY value
+};</pre>
+          </div>
+          <div class="say private">
+            <p class="label">Say</p>
+            <p class="line">"This is my favourite part. I didn't assume memory was fine, I measured it: load a hundred thousand tiny keys and compare process memory before and after. It came out to about five kilobytes per key, for one-byte values."</p>
+            <p class="line">"Every value is a std::variant of string, list, hash or sorted set, and <span class="hook" data-to="dd-memory">a variant is always as big as its largest alternative</span>. My sorted set contained a skip list, and the skip list held its own random number generator, a Mersenne Twister, which carries about five kilobytes of state. So every key, even a tiny string, paid for a generator it never used."</p>
+            <p class="line">"I moved the generator to one shared static. That cut memory thirty times, to 175 bytes per key, within 2× of Redis. Then I added a unit test that fails if the per-key entry ever grows past 256 bytes, so it can't come back silently."</p>
+            <div class="notes">
+              <div class="note tip"><b>Tip</b><span>Tell it as a story with a turn: "I expected X, measured Y." This is the answer to "tell me about a bug you fixed" and "how do you debug performance".</span></div>
+              <div class="note"><b>Expect</b><span>"Where do the remaining 175 bytes go?" "Is a shared static RNG thread-safe?" Both are in the memory deep dive.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="stage-foot"><button type="button" data-prev>← Back</button><span class="kbd private">← → to move · S to share</span><button type="button" data-next>Next →</button></div>
+      </article>
+
+      <!-- 06 -->
+      <article class="stage" data-stage hidden>
+        <div class="stage-head">
+          <span class="eyebrow">06 · 20 seconds</span>
+          <h2>Close and invite</h2>
+          <span class="goal private">Goal: hand them a menu, so the deep dive happens on ground you prepared.</span>
+        </div>
+        <div class="stage-body">
+          <div class="show">
+            <p class="label">On screen</p>
+            <div class="big" style="font-size:clamp(1.6rem,3.6vw,2.4rem)">Where would you like to go deeper?</div>
+            <p class="lede">Every part is tested: a randomized test checks the skip list against <code>std::set</code> over 20 000 operations, and everything runs under AddressSanitizer in CI.</p>
+            <nav class="menu" aria-label="Deep dive topics">
+              <a href="#dd-thread">The event loop<small>why one thread wins</small></a>
+              <a href="#dd-parser">The protocol parser<small>pipelining, split packets</small></a>
+              <a href="#dd-skiplist">The skip list<small>rank in O(log n)</small></a>
+              <a href="#dd-durability">Crash safety<small>fsync, truncation, rename</small></a>
+              <a href="#dd-expiry">Key expiry<small>lazy + active</small></a>
+              <a href="#dd-memory">Memory per key<small>the 5 KB story</small></a>
+            </nav>
+          </div>
+          <div class="say private">
+            <p class="label">Say</p>
+            <p class="line">"It's covered by unit tests, including a randomized test that checks the skip list against std::set over twenty thousand operations, plus end-to-end tests that start the real server. Everything runs under AddressSanitizer in CI."</p>
+            <p class="line">"I'm happy to go deeper into any part: the event loop, the protocol parser, the skip list, or how the log survives a crash. Where would you like to start?"</p>
+            <div class="notes">
+              <div class="note tip"><b>Tip</b><span>Ending on a question hands them control, and every option on the menu is one you've rehearsed below.</span></div>
+              <div class="note avoid"><b>Avoid</b><span>Trailing off with "...so yeah, that's it." End on the question.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="stage-foot"><button type="button" data-prev>← Back</button><span class="kbd private">← → to move · S to share</span><button type="button" data-next>Next →</button></div>
+      </article>
+    </div>
+  </div>
+
+  <!-- ================= deep dives ================= -->
+  <div class="section-title">
+    <h2>Deep dives</h2>
+    <p class="private">Each one: the question as they'll probably ask it, your spoken answer, what to draw, and the follow-ups that come next.</p>
+  </div>
+
+  <div class="dives">
+
+    <details class="dive" id="dd-thread">
+      <summary><span class="q">"Why single-threaded? Wouldn't threads be faster?"</span><span class="tag">event loop</span><span class="from private">Hooked by: "a single thread with an epoll event loop"</span></summary>
+      <div class="dive-body">
+        <div class="say private">
+          <p class="label">Say</p>
+          <p>"Each command takes microseconds, because everything is in memory. The slow part is waiting on the network, and epoll does that waiting for thousands of sockets from one thread. So the CPU work is small and the waiting is shared."</p>
+          <p>"One thread also means no locks, no contention and no data races, and every command is atomic for free. INCR can never lose an update. My first version used a thread per client with a global mutex, and the mutex serialised every command anyway, so I paid for threads and got none of the benefit."</p>
+          <p>"The trade-off is one core, and a slow command like KEYS on a big database blocks everyone. Redis 6 kept command execution on one thread but moved socket reads and writes to I/O threads. If I needed more throughput, I'd do that or run several independent instances."</p>
+          <p class="label" style="margin-top:16px">Follow-ups</p>
+          <ul class="follow">
+            <li>"Level-triggered or edge-triggered?"<span>Level. epoll keeps reporting a socket while data is waiting. I read one 16 KB chunk per event, which is fair across clients. Edge-triggered only fires on changes, so you must drain until EAGAIN or you hang.</span></li>
+            <li>"Why only enable EPOLLOUT sometimes?"<span>A socket is almost always writable. If EPOLLOUT stayed on, the loop would wake constantly with nothing to do and spin at 100% CPU. I turn it on only when a send() couldn't finish, and off once the buffer drains.</span></li>
+            <li>"What if a client never reads its replies?"<span>Its output buffer grows. Mine has no cap yet, which is a known gap. Redis disconnects such clients with client-output-buffer-limit, and that's what I'd add.</span></li>
+          </ul>
+        </div>
+        <div class="show">
+          <p class="label">Draw</p>
+<pre class="sketch">while (!stop) {
+  n = epoll_wait(ep, events, 128, 100ms)
+  for each ready fd:
+    listen fd  → accept all, set O_NONBLOCK
+    EPOLLIN    → read 16 KB → parse → run
+    EPOLLOUT   → send the rest of output
+  every 100 ms: expire keys
+  every 1 s:    fsync AOF
+}</pre>
+          <p class="small">One thread. No mutex anywhere in the server.</p>
+        </div>
+      </div>
+    </details>
+
+    <details class="dive" id="dd-parser">
+      <summary><span class="q">"What if a command arrives in two packets? How does pipelining work?"</span><span class="tag">protocol</span><span class="from private">Hooked by: "Redis wire protocol", "TCP is a byte stream"</span></summary>
+      <div class="dive-body">
+        <div class="say private">
+          <p class="label">Say</p>
+          <p>"TCP only guarantees the bytes arrive in order. It doesn't keep message boundaries. So each client has an input buffer, and the parser looks at it and returns one of three answers: a complete command, 'incomplete, wait for more bytes', or a protocol error."</p>
+          <p>"The Redis protocol prefixes every value with its length, so I never scan through a value looking for a delimiter. I calculate where it ends. If those bytes aren't in the buffer yet, it's incomplete. That's also why values can contain anything, including newlines: it's binary safe."</p>
+          <p>"Pipelining falls out naturally: I loop over the buffer running every complete command, write the log once, and send all the replies in one send call. My unit test feeds the parser every possible prefix of a command and checks each one is 'incomplete', and the end-to-end test sends a command split across two packets with a pause in between."</p>
+          <p class="label" style="margin-top:16px">Follow-ups</p>
+          <ul class="follow">
+            <li>"What stops someone sending a 10 GB command?"<span>Limits, same as Redis: at most 1 million arguments, 512 MB per argument, 64 KB per header line, 1 GB per client buffer. Past that, the client gets an error and is disconnected.</span></li>
+            <li>"Do you re-parse from the start when more data arrives?"<span>Yes, which keeps the code simple. It only re-reads the small headers; bulk bodies are skipped by length, so the cost is per argument, not per byte.</span></li>
+          </ul>
+        </div>
+        <div class="show">
+          <p class="label">Draw</p>
+<pre class="sketch">SET name Alice  →
+
+*3\r\n             array of 3
+$3\r\nSET\r\n      3 bytes
+$4\r\nname\r\n     4 bytes
+$5\r\nAlice\r\n    5 bytes
+
+buffer: [*3 $3 SET $4 na]   → Incomplete, wait
+buffer: [... me $5 Alice]   → Ok, consumed=37</pre>
+        </div>
+      </div>
+    </details>
+
+    <details class="dive" id="dd-skiplist">
+      <summary><span class="q">"Why a skip list? Why not std::map?"</span><span class="tag">data structures</span><span class="from private">Hooked by: "a skip list that keeps a span on every link"</span></summary>
+      <div class="dive-body">
+        <div class="say private">
+          <p class="label">Say</p>
+          <p>"A sorted set needs insert, delete, and 'what's the rank of this member' or 'give me positions 10 to 20'. std::map gives log-time insert, but it can't tell you a position. std::distance walks one element at a time, which is linear."</p>
+          <p>"A skip list is a sorted linked list with express lanes on top. Each node gets a random height, so searches skip most nodes and take log n on average, with no rebalancing. Then each link stores its span, how many nodes it jumps over. Adding up spans along the search path gives the rank in log n. That's exactly what Redis does."</p>
+          <p>"Next to it is a hash map from member to score, so ZSCORE is constant time. In a micro-benchmark with 200 000 members, ZRANK was over three thousand times faster than walking a std::set."</p>
+          <p class="label" style="margin-top:16px">Follow-ups</p>
+          <ul class="follow">
+            <li>"How did you know the span arithmetic was right?"<span>A randomized model test: 20 000 random adds, updates and removes with lots of equal scores, compared with std::set every 500 operations, for the full range, every rank and a sub-range. Plus AddressSanitizer for pointer bugs.</span></li>
+            <li>"How are ties ordered?"<span>By score, then by member name, like Redis. Without a tie-breaker, equal scores would have no defined order.</span></li>
+            <li>"Worst case?"<span>O(n) if the random levels came out terrible, but the probability is negligible. Balanced trees guarantee log n but need rotations, and still need extra counts for rank.</span></li>
+          </ul>
+        </div>
+        <div class="show">
+          <p class="label">Draw</p>
+<pre class="sketch">positions:        0      1     2     3     4
+level 1:  head --(2)--> b --(2)------> d --> nil
+level 0:  head -1-> a -1-> b -1-> c -1-> d --> nil
+
+rank(d): head→b (+2), b→d (+2) = 4 → index 3
+two hops instead of four</pre>
+        </div>
+      </div>
+    </details>
+
+    <details class="dive" id="dd-durability">
+      <summary><span class="q">"What happens if it crashes in the middle of a write?"</span><span class="tag">persistence</span><span class="from private">Hooked by: "flushes the log and fsyncs it", "log written before the reply"</span></summary>
+      <div class="dive-body">
+        <div class="say private">
+          <p class="label">Say</p>
+          <p>"Every command that changes data is appended to the log in the same format clients send. On startup I replay it through the normal parser and command code."</p>
+          <p>"If the process dies halfway through a write, the file ends with half a command. On startup the parser says 'incomplete' at the end, and I truncate the file back to the last complete command and carry on. Garbage in the middle is different: that's real corruption, so I refuse to start rather than silently lose data."</p>
+          <p>"Durability is configurable like in Redis: fsync always, every second, or let the OS decide. write() only puts data in the OS cache, so a process crash loses nothing that was written, but a power cut can lose up to a second in the default mode."</p>
+          <p>"Two details I'm proud of. Expiry commands are relative, 'in 100 seconds', so replaying them tomorrow would be wrong. I log them as absolute timestamps instead. And compaction writes a new file, fsyncs it, then renames it over the old one. rename is atomic, so a crash leaves either the old file or the new one, never half of each."</p>
+          <p class="label" style="margin-top:16px">Follow-ups</p>
+          <ul class="follow">
+            <li>"Does the rewrite block clients?"<span>Yes, mine is synchronous. Redis forks a child that writes the snapshot using copy-on-write memory while the parent keeps serving and buffers new writes. That's my next step.</span></li>
+            <li>"Why reopen the file after rename?"<span>My file descriptor still points at the old file, which still exists while it's open. New writes would go into a file nobody reads.</span></li>
+          </ul>
+        </div>
+        <div class="show">
+          <p class="label">Draw</p>
+<pre class="sketch">client: SET k v EX 100
+AOF:    SET k v
+        PEXPIREAT k 1767225700000   ← absolute
+
+crash mid-write:
+[ SET a 1 ][ SET b 2 ][ SET c 3 ][ SE ]
+                                   ^ truncate here
+
+rewrite: write tmp → fsync → rename(tmp, aof)</pre>
+        </div>
+      </div>
+    </details>
+
+    <details class="dive" id="dd-expiry">
+      <summary><span class="q">"How do expiring keys actually get deleted?"</span><span class="tag">TTL</span><span class="from private">Natural follow-up to the live demo's "SET session abc EX 5"</span></summary>
+      <div class="dive-body">
+        <div class="say private">
+          <p class="label">Say</p>
+          <p>"Two ways, like Redis. Lazily: every lookup goes through one find function that checks the expiry time and deletes the key if it has passed, so no command can ever see an expired key."</p>
+          <p>"Actively: ten times a second I remove keys nobody touches. I keep a std::set of expiry time and key, so the soonest key is always at the front. I only look at keys that have actually expired, capped at 200 per round so the loop stays responsive."</p>
+          <p>"Redis does it differently: it samples 20 random keys that have a TTL and repeats while a quarter of them were expired. That saves the memory of my index, but it's probabilistic. Mine is exact but costs more memory per key with a TTL."</p>
+          <p class="label" style="margin-top:16px">Follow-ups</p>
+          <ul class="follow">
+            <li>"Why wall-clock time and not a steady clock?"<span>Expiry times are saved in the log and must mean the same moment after a restart. The trade-off: if the system clock jumps, TTLs jump too. Redis has the same issue.</span></li>
+          </ul>
+        </div>
+        <div class="show">
+          <p class="label">Draw</p>
+<pre class="sketch">expiry index (sorted by time):
+  (1000, "a") (1200, "x") (5000, "s") ...
+   ^ now = 1300: remove a, x; stop at s
+
+GET a → find("a") → expired? → delete → (nil)</pre>
+        </div>
+      </div>
+    </details>
+
+    <details class="dive" id="dd-memory">
+      <summary><span class="q">"Five kilobytes per key? How?"</span><span class="tag">C++ / memory</span><span class="from private">Hooked by: the opener and stage 05</span></summary>
+      <div class="dive-body">
+        <div class="say private">
+          <p class="label">Say</p>
+          <p>"std::variant stores its value inline, so its size is the size of its largest alternative plus a tag. My largest alternative was the sorted set, which contained the skip list, which had a std::mt19937 member. A Mersenne Twister keeps 624 words of state, about five kilobytes on 64-bit Linux. So sizeof(Value) was 5088 bytes, and every key paid that, even a one-byte string."</p>
+          <p>"I found it by measuring, not by reading code. I loaded 100 000 keys and compared the process memory before and after: about 490 MB. Then sizeof confirmed it. Making the generator a function-local static shared by all skip lists brought sizeof(Value) to 88 bytes and memory per key to 175."</p>
+          <p class="label" style="margin-top:16px">Follow-ups</p>
+          <ul class="follow">
+            <li>"Where do the remaining 175 bytes go?"<span>96 for the entry itself, then the key string, the hash table node and its bucket pointer, and allocator overhead. Redis gets 93 by packing small values into compact encodings and using jemalloc.</span></li>
+            <li>"Is a shared static generator thread-safe?"<span>Not in general, but the server is single-threaded, so only one thread ever calls it. If I added threads, I'd make it thread_local.</span></li>
+            <li>"Doesn't sharing it change behaviour?"<span>No. Node heights only need to be random-looking, not independent per list. The fixed seed still makes runs reproducible.</span></li>
+            <li>"How would you shrink it further?"<span>Store big types behind a pointer so the variant stays small, use small-string encodings, and a better allocator.</span></li>
+          </ul>
+        </div>
+        <div class="show">
+          <p class="label">Draw</p>
+<pre class="sketch">variant&lt;string, List, Hash, SortedSet&gt;
+        32      80    56    ~5000  ← largest wins
+
+sizeof(Value)  5088 → 88
+per key        ~5 KB → 175 B   (Redis: 93 B)
+
+TEST(entries_stay_small) {
+  CHECK(sizeof(Entry) &lt;= 256);
+}</pre>
+        </div>
+      </div>
+    </details>
+
+    <details class="dive" id="dd-bench">
+      <summary><span class="q">"How did you benchmark it? Is the comparison fair?"</span><span class="tag">methodology</span><span class="from private">Hooked by: "grows its hash table incrementally and uses a tuned allocator"</span></summary>
+      <div class="dive-body">
+        <div class="say private">
+          <p class="label">Say</p>
+          <p>"I used redis-benchmark, Redis's own tool, against both servers on the same machine with the same settings: persistence off for both, both single-threaded, 1 and 50 clients, with and without pipelining. A script runs every scenario and writes one table."</p>
+          <p>"I ran two workloads on purpose. One hot key is the best case for me. Six hundred thousand distinct keys is where Redis shows its engineering: when its hash table grows, it moves entries a few at a time, while std::unordered_map rehashes everything at once, which causes latency spikes. And jemalloc packs small objects better than the default allocator."</p>
+          <p>"Single runs on a shared VM vary about 20%, so I quote ranges, not one number."</p>
+        </div>
+        <div class="show">
+          <p class="label">Draw</p>
+<pre class="sketch">redis-benchmark -p PORT -n 200000
+                -c {1,50} -P {1,16}
+                -t set,get,incr,lpush,rpop,hset,zadd
+
+same box · persistence off · ranges, not points</pre>
+        </div>
+      </div>
+    </details>
+
+    <details class="dive" id="dd-next">
+      <summary><span class="q">"Is it production-ready? What would you add next?"</span><span class="tag">judgement</span><span class="from private">Often the last question. Answer like an engineer, not a salesperson.</span></summary>
+      <div class="dive-body">
+        <div class="say private">
+          <p class="label">Say</p>
+          <p>"No, and I'd say that clearly. It has no authentication or TLS, so it only listens on localhost by default. A client that never reads can grow memory without limit, there's no maxmemory eviction, and log compaction blocks the server."</p>
+          <p>"In order, I'd add output buffer limits, background rewrite with fork, a password, then maxmemory with approximate LRU. MULTI/EXEC transactions would be easy, because single-threaded execution is already atomic."</p>
+        </div>
+        <div class="show">
+          <p class="label">Draw</p>
+<pre class="sketch">missing              → next step
+auth / TLS           → requirepass, tls-port
+slow-reader memory   → output buffer limit
+blocking rewrite     → fork() + copy-on-write
+unbounded memory     → maxmemory + LRU
+single machine       → replication</pre>
+        </div>
+      </div>
+    </details>
+
+    <details class="dive" id="dd-ai">
+      <summary><span class="q">"Did you build this yourself?"</span><span class="tag">honesty</span><span class="from private">Answer directly. A confident, true answer is far stronger than a defensive one.</span></summary>
+      <div class="dive-body">
+        <div class="say private">
+          <p class="label">Say</p>
+          <p>"I first built a basic version by following a tutorial. Measuring it showed real problems: no TCP framing, a thread per client, bugs in DEL and in TTLs. So I redesigned it from scratch around an event loop. I used AI assistance while writing it, the way I'd use any tool, and I made sure I understand every line. I found and fixed the memory issue by measuring it myself. Pick any file and I'll walk you through it."</p>
+          <p class="cue">[only say what's true for you; adjust before the interview]</p>
+        </div>
+        <div class="show">
+          <p class="label">Back it up</p>
+          <p class="small">Offer to open any file and explain it. Being able to do that is what the claim rests on.</p>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- ================= rapid fire ================= -->
+  <div class="section-title private">
+    <h2>Rapid fire</h2>
+    <p>Short answers for short questions. One or two sentences, then stop.</p>
+  </div>
+  <div class="rapid private">
+    <div class="qa"><b>Why std::deque for lists?</b>LPUSH and LPOP need constant time at the front. A vector shifts every element: over 1000× slower at 50 000 items in my benchmark.</div>
+    <div class="qa"><b>Why std::variant instead of a map per type?</b>A key can only have one type. With three maps, the same key could be a string and a list at once. Now TYPE and WRONGTYPE are correct by construction.</div>
+    <div class="qa"><b>How do you shut down safely?</b>The signal handler only sets a flag; that's all that's safe in a handler. epoll_wait returns EINTR, the loop sees the flag, then flushes and fsyncs the log.</div>
+    <div class="qa"><b>What about SIGPIPE?</b>Ignored, and every send uses MSG_NOSIGNAL. Otherwise one client disconnecting mid-reply would kill the server.</div>
+    <div class="qa"><b>Why disable Nagle's algorithm?</b>It delays small packets hoping to merge them, adding up to 40 ms to tiny replies like +OK.</div>
+    <div class="qa"><b>How is it tested?</b>32 unit tests including a randomized model test, 35 end-to-end tests over real TCP, all under AddressSanitizer and UBSan in GitHub Actions.</div>
+    <div class="qa"><b>Why is KEYS dangerous?</b>It walks every key on the only thread, so every other client waits. Production Redis users use SCAN instead.</div>
+    <div class="qa"><b>What was the hardest part?</b>The span arithmetic in skip-list insert. I didn't trust it until the randomized test agreed with std::set over 20 000 operations.</div>
+  </div>
+
+  <!-- ================= prep ================= -->
+  <div class="section-title private">
+    <h2>Before the interview</h2>
+  </div>
+  <div class="prep private">
+    <div class="col">
+      <h3>The day before</h3>
+      <ul>
+        <li>Say the opener out loud three times, with the stopwatch. Aim for 30 seconds.</li>
+        <li>Re-run <code>make test</code> and <code>make benchmark</code>. Replace any number here that differs on your machine.</li>
+        <li>Re-create the 5 KB bug once (add the member back, watch <code>entries_stay_small</code> fail) so you can describe it from memory.</li>
+        <li>Pick two deep dives and practise drawing their sketch on paper.</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>The hour before</h3>
+      <ul>
+        <li>Build the server and open two terminals, sized so text is readable on a shared screen.</li>
+        <li>Delete <code>appendonly.aof</code> so the demo starts from an empty database.</li>
+        <li>Check the official <code>redis-cli</code> is installed.</li>
+        <li>Open this page and press <kbd>S</kbd> to check screen-share mode.</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>During</h3>
+      <ul>
+        <li>Stop after each hook. If they don't bite, move to the next stage.</li>
+        <li>If they interrupt, follow them. The stages are a fallback, not a script to finish.</li>
+        <li>Don't know an answer? "I haven't measured that. My guess is X, and here's how I'd check."</li>
+      </ul>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  var stages = Array.prototype.slice.call(document.querySelectorAll("[data-stage]"));
+  var railButtons = Array.prototype.slice.call(document.querySelectorAll(".rail [data-go]"));
+  var current = 0;
+
+  function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+  function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+
+  function show(index) {
+    current = Math.max(0, Math.min(stages.length - 1, index));
+    stages.forEach(function (stage, i) {
+      stage.hidden = i !== current;
+      stage.querySelector("[data-prev]").disabled = i === 0;
+      stage.querySelector("[data-next]").disabled = i === stages.length - 1;
+    });
+    railButtons.forEach(function (button, i) {
+      if (i === current) button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
+    });
+    store("talk-stage", String(current));
+  }
+
+  railButtons.forEach(function (button) {
+    button.addEventListener("click", function () { show(Number(button.dataset.go)); });
+  });
+  stages.forEach(function (stage) {
+    stage.querySelector("[data-prev]").addEventListener("click", function () { show(current - 1); });
+    stage.querySelector("[data-next]").addEventListener("click", function () { show(current + 1); });
+  });
+
+  // Rehearse / screen-share
+  var rehearse = document.getElementById("mode-rehearse");
+  var share = document.getElementById("mode-share");
+  function setMode(mode) {
+    var sharing = mode === "share";
+    document.body.classList.toggle("share", sharing);
+    share.setAttribute("aria-pressed", String(sharing));
+    rehearse.setAttribute("aria-pressed", String(!sharing));
+    store("talk-mode", mode);
+  }
+  rehearse.addEventListener("click", function () { setMode("rehearse"); });
+  share.addEventListener("click", function () { setMode("share"); });
+
+  // Hooks jump to their deep dive and open it
+  document.querySelectorAll(".hook[data-to]").forEach(function (hook) {
+    hook.setAttribute("tabindex", "0");
+    hook.setAttribute("role", "link");
+    function go() {
+      var target = document.getElementById(hook.dataset.to);
+      if (!target) return;
+      target.open = true;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    hook.addEventListener("click", go);
+    hook.addEventListener("keydown", function (e) { if (e.key === "Enter") go(); });
+  });
+  // Menu links open the deep dive they point to
+  document.querySelectorAll('a[href^="#dd-"]').forEach(function (link) {
+    link.addEventListener("click", function () {
+      var target = document.getElementById(link.getAttribute("href").slice(1));
+      if (target) target.open = true;
+    });
+  });
+
+  // Stopwatch
+  var clockText = document.getElementById("clock-time");
+  var toggle = document.getElementById("clock-toggle");
+  var startedAt = 0, elapsed = 0, timer = null;
+  function render() {
+    var total = elapsed + (timer ? Date.now() - startedAt : 0);
+    var seconds = Math.floor(total / 1000);
+    clockText.textContent = Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
+  }
+  toggle.addEventListener("click", function () {
+    if (timer) {
+      elapsed += Date.now() - startedAt;
+      clearInterval(timer); timer = null; toggle.textContent = "Start";
+    } else {
+      startedAt = Date.now();
+      timer = setInterval(render, 250); toggle.textContent = "Pause";
+    }
+    render();
+  });
+  document.getElementById("clock-reset").addEventListener("click", function () {
+    elapsed = 0; startedAt = Date.now(); render();
+  });
+
+  // Keyboard: arrows move between stages, S toggles screen-share
+  document.addEventListener("keydown", function (e) {
+    var tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "ArrowRight") show(current + 1);
+    else if (e.key === "ArrowLeft") show(current - 1);
+    else if (e.key === "s" || e.key === "S") setMode(document.body.classList.contains("share") ? "rehearse" : "share");
+  });
+
+  var savedStage = Number(load("talk-stage"));
+  show(isNaN(savedStage) ? 0 : savedStage);
+  setMode(load("talk-mode") === "share" ? "share" : "rehearse");
+
+  // A deep link like #dd-memory opens that deep dive
+  if (location.hash.indexOf("#dd-") === 0) {
+    var target = document.getElementById(location.hash.slice(1));
+    if (target) target.open = true;
+  }
+})();
+</script>
