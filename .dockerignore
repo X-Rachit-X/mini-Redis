@@ -1,0 +1,5 @@
+build/
+bin/
+*.aof
+.git/
+bench/results/

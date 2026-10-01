@@ -19,6 +19,8 @@ Everything you need to understand, explain and defend this project, from "what i
 | 6 | [C++ concepts](6-cpp-concepts.md) | every C++/POSIX feature used, in plain language, with `file:line` | when the code shows you something unfamiliar |
 | 7 | [Defense guide](7-defense-guide.md) | measured facts, claim → evidence map, decision dossiers, complexity table, hard questions, **known issues** | to make every claim defensible |
 | 8 | [Reference](8-reference.md) | all 53 commands, AOF translation rules, options, limits, error messages, glossary | to look something up |
+| 9 | [Running and deploying](9-deploy.md) | local, Docker, systemd on a VM, SSH tunnel, demo checklist, what production would still need | to run it anywhere but your laptop |
+| ▶ | [Interview presentation](interview/index.html) | an interactive talk track: what to show, what to say, the hooks that invite deep dives, and the deep-dive answers | the night before and the hour before an interview |
 
 ## Paths by goal
 

@@ -150,6 +150,7 @@ Rules (`commands.cpp:50`, `aof.cpp:83-105`):
 | Flag | Default | Meaning |
 |---|---|---|
 | `--port N` | 6379 | TCP port (1-65535) |
+| `--bind IP` | `127.0.0.1` | IPv4 address to listen on. `0.0.0.0` = every interface (no password, so firewall it; see [Layer 9](9-deploy.md)) |
 | `--aof-file PATH` | `appendonly.aof` | AOF location (relative to the current directory) |
 | `--appendfsync always\|everysec\|no` | `everysec` | when to `fdatasync` the AOF |
 | `--no-aof` | AOF on | memory only |

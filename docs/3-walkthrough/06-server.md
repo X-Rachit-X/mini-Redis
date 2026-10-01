@@ -22,7 +22,22 @@ void set_tcp_nodelay(int fd) {
 **Nagle's algorithm** makes TCP hold small packets for a while, hoping to merge them, which adds up to ~40 ms of latency to tiny replies like `+OK`. Request/response servers always disable it. Real Redis does too.
 
 ```cpp
-int create_listen_socket(int port) {
+int create_listen_socket(const std::string& bind_address, int port) {
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, bind_address.c_str(), &addr.sin_addr) != 1) {
+        fprintf(stderr, "Invalid bind address: %s\n", bind_address.c_str());
+        return -1;
+    }
+```
+First build the address we'll listen on:
+- `{}` zero-initializes the struct (important: it has padding fields).
+- `htons` = "host to network short": converts the port to **big-endian** byte order, which network protocols use. x86 is little-endian, so the bytes really do get swapped.
+- `inet_pton` ("presentation to network") turns the text `"127.0.0.1"` into the 4-byte binary address. It returns 1 on success, so anything else means a typo like `--bind 127.0.0` and we fail before creating a socket.
+- **Which address?** `127.0.0.1` (the default) accepts connections only from this machine. `0.0.0.0` accepts them on every network interface. The server has no password, so the safe default is local-only, the same as real Redis. See [Layer 9](../9-deploy.md) for when `0.0.0.0` is right (inside Docker).
+
+```cpp
     int fd = socket(AF_INET, SOCK_STREAM, 0);
 ```
 `AF_INET` = IPv4, `SOCK_STREAM` = TCP. `0` = default protocol.
@@ -32,16 +47,6 @@ int create_listen_socket(int port) {
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 ```
 After a server stops, its port stays in `TIME_WAIT` for ~60 s, and `bind()` would fail with "Address already in use". `SO_REUSEADDR` allows an immediate restart.
-
-```cpp
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-```
-- `{}` zero-initializes the struct (important: it has padding fields).
-- `htons`/`htonl` = "host to network short/long": convert to **big-endian** byte order, which network protocols use. x86 is little-endian, so the bytes really do get swapped.
-- `INADDR_ANY` listens on all network interfaces.
 
 ```cpp
     if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) { perror("bind"); close(fd); return -1; }

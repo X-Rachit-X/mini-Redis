@@ -1,0 +1,18 @@
+# systemd unit: runs mini-redis as a background service that starts on boot
+# and restarts if it crashes. Installation steps: docs/9-deploy.md
+[Unit]
+Description=mini-redis in-memory data store
+After=network.target
+
+[Service]
+Type=simple
+User=miniredis
+WorkingDirectory=/var/lib/mini-redis
+ExecStart=/usr/local/bin/mini-redis-server --bind 127.0.0.1 --port 6379 --aof-file /var/lib/mini-redis/appendonly.aof
+# SIGTERM triggers our graceful shutdown (flush + fsync the AOF).
+KillSignal=SIGTERM
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

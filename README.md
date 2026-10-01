@@ -5,7 +5,7 @@ It speaks the real Redis protocol (RESP), so the official `redis-cli` and `redis
 
 ```
 $ ./bin/mini-redis-server --port 6379
-mini-redis listening on port 6379 (AOF appendonly.aof)
+mini-redis listening on 127.0.0.1:6379 (AOF appendonly.aof)
 
 $ ./bin/mini-redis-cli
 127.0.0.1:6379> ZADD leaderboard 300 carol 100 alice 200 bob
@@ -45,7 +45,7 @@ OK
 
 ```bash
 make                      # builds bin/mini-redis-server and bin/mini-redis-cli
-./bin/mini-redis-server   # options: --port N  --aof-file PATH  --appendfsync always|everysec|no  --no-aof
+./bin/mini-redis-server   # options: --port N  --bind IP  --aof-file PATH  --appendfsync always|everysec|no  --no-aof
 ./bin/mini-redis-cli      # options: -h HOST  -p PORT  [command args...]
 
 make test                 # unit tests + end-to-end tests
@@ -54,7 +54,15 @@ make microbench           # data-structure micro benchmarks
 make benchmark            # redis-benchmark: mini-redis vs real Redis (needs redis-tools)
 ```
 
-Requires g++ with C++17 and Linux (`epoll`). On Windows, use WSL.
+Requires g++ with C++17 and Linux (`epoll`). On Windows, use WSL or Docker:
+
+```bash
+docker build -t mini-redis .
+docker run -d --name mini-redis -p 127.0.0.1:6379:6379 -v mini-redis-data:/data mini-redis
+docker exec -it mini-redis mini-redis-cli
+```
+
+The server listens on `127.0.0.1` by default and has no password, so don't expose it to the internet. [docs/9-deploy.md](docs/9-deploy.md) covers Docker, running it as a systemd service on a VM, and SSH tunnels.
 
 ## Commands
 
@@ -132,6 +140,9 @@ The [`docs/`](docs/README.md) folder explains the project in layers. **Start wit
 6. [C++ concepts](docs/6-cpp-concepts.md): every C++ and POSIX feature used, in plain language, with where and why.
 7. [Defense guide](docs/7-defense-guide.md): measured facts, claim-to-evidence map, alternatives considered, known issues and fixes.
 8. [Reference](docs/8-reference.md): commands, AOF rules, limits, error messages, glossary.
+9. [Running and deploying](docs/9-deploy.md): local, Docker, systemd, SSH tunnel, and what production would still need.
+
+**Interview presentation:** [docs/interview/index.html](docs/interview/index.html). Open it in a browser: an interactive talk track with what to show, what to say, and where the interviewer will dig.
 
 ## Possible next steps
 
