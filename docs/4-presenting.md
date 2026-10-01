@@ -89,7 +89,7 @@ Output buffer limits, background rewrite with `fork()`, Pub/Sub (the event loop 
 **What was the hardest bug / most interesting part?**
 Pick something real you hit while studying it. Good candidates:
 - The span arithmetic in skip-list insert.
-- Copying the key before `remove()` in `remove_expired` (otherwise you'd read freed memory).
+- Copying the key before `remove()` in `remove_expired`: a defensive copy, because the key lives inside the element being erased (see [Layer 6](6-cpp-concepts.md#use-after-free-traps-the-code-avoids) for why it's "safe by construction, not by luck").
 - Having to reopen the AOF fd after `rename`.
 - Logging relative TTLs as absolute times.
 
@@ -111,3 +111,7 @@ kill %1 && ./bin/mini-redis-server &   # restart
 ./bin/mini-redis-cli ZRANGE board 0 -1  # data is still there
 redis-benchmark -t set,get -n 100000 -q # works with the official tool
 ```
+
+---
+
+Next: [Layer 5: Diagrams](5-diagrams.md) · For evidence behind every claim, see [Layer 7: Defense guide](7-defense-guide.md)

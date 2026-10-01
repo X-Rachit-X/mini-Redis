@@ -241,7 +241,7 @@ int Database::remove_expired(int max_keys) {
 }
 ```
 **Active expiry.** Look at the soonest-expiring key: if it isn't expired yet, *no* key is (the set is sorted), so stop. Otherwise delete it and look again.
-- `std::string key = first->second;` **copies** the key, because `remove()` erases the set element that `first` points to. Using `first->second` after that would read freed memory. This is exactly the kind of bug AddressSanitizer catches.
+- `std::string key = first->second;` **copies** the key, because `remove()` erases the set element that `first` points to. Any use of `first->second` *after* that erase would read freed memory. Strictly speaking, today's `remove()` copies `key` into a temporary pair before erasing, so passing a reference would happen to work (ASan stays quiet if you try it). The copy is **defensive**: `remove_expired` stays safe even if `remove()` is later changed to use `key` after the erase.
 - `max_keys` caps the work per call so the event loop never stalls.
 
 ```cpp
