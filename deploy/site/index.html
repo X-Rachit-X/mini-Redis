@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mini-redis</title>
+<meta name="description" content="A Redis-compatible server written from scratch in C++17. Try it live in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,600..800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: one column. Hero with the live-terminal button, then a guided list
+   of commands (the reason a visitor is here), then how it works. */
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --sunken: #e3e8ee;
+  --fg: #17202b;
+  --muted: #586577;
+  --line: #cfd6df;
+  --accent: #1d56c4;
+  --accent-ink: #ffffff;
+  --term-bg: #0d1117;
+  --term-fg: #d6dde6;
+  --term-prompt: #7fa8ff;
+  --term-out: #9be3b4;
+  --font-display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --radius: 6px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e131a; --surface: #151c26; --sunken: #1c2532; --fg: #e3e9f1; --muted: #93a1b4;
+    --line: #2a3546; --accent: #7fa8ff; --accent-ink: #0e131a; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-inline: 16px; }
+h1, h2, h3 { font-family: var(--font-display); font-stretch: 80%; line-height: 1.12; margin: 0; text-wrap: balance; }
+a { color: var(--accent); }
+code, kbd { font-family: var(--font-mono); font-size: 0.9em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header.top { border-bottom: 1px solid var(--line); }
+header.top .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding-block: 12px; }
+header.top .name { font-family: var(--font-display); font-stretch: 80%; font-weight: 800; font-size: 1.2rem; }
+header.top nav { display: flex; gap: 16px; font-size: 0.92rem; }
+
+.hero { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; align-items: center; padding-block: 48px 40px; }
+.hero h1 { font-size: clamp(2.2rem, 5.2vw, 3.6rem); font-weight: 800; }
+.hero p { font-size: 1.1rem; max-width: 46ch; margin: 16px 0 24px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.btn { display: inline-block; text-decoration: none; font-weight: 600; border-radius: var(--radius); padding: 11px 18px; border: 1px solid var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.ghost { color: var(--accent); background: transparent; }
+.access { font-size: 0.88rem; color: var(--muted); margin-top: 12px; }
+
+.term { background: var(--term-bg); color: var(--term-fg); border-radius: var(--radius); padding: 16px 18px; margin: 0;
+  font-family: var(--font-mono); font-size: 0.86rem; line-height: 1.6; overflow-x: auto; white-space: pre; }
+.term .p { color: var(--term-prompt); }
+.term .o { color: var(--term-out); }
+
+section { padding-block: 36px; border-top: 1px solid var(--line); }
+.section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 20px; margin-bottom: 20px; }
+.section-head h2 { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 750; }
+.section-head p { margin: 0; color: var(--muted); max-width: 60ch; }
+
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; counter-reset: step; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.step h3 { font-size: 1.15rem; font-weight: 750; }
+.step h3::before { counter-increment: step; content: counter(step) ". "; color: var(--accent); }
+.step p { margin: 0; font-size: 0.94rem; color: var(--muted); }
+.cmd { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; background: var(--sunken); border-radius: 4px; padding: 6px 6px 6px 10px; }
+.cmd code { overflow-x: auto; white-space: nowrap; font-size: 0.86rem; }
+.cmd button { font: inherit; font-size: 0.78rem; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 4px; padding: 3px 9px; cursor: pointer; }
+.expect { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
+.note { margin-top: 18px; font-size: 0.92rem; color: var(--muted); max-width: 75ch; }
+
+.under { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.under div { min-width: 0; }
+.under h3 { font-size: 1.05rem; font-weight: 750; margin-bottom: 4px; }
+.under p { margin: 0; font-size: 0.94rem; }
+
+.path { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.88rem; }
+.path span.box { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 6px 10px; }
+.path span.box small { display: block; color: var(--muted); font-size: 0.76rem; }
+.path span.arr { color: var(--muted); font-family: var(--font-mono); }
+
+footer { border-top: 1px solid var(--line); padding-block: 24px 40px; font-size: 0.9rem; color: var(--muted); }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; }
+
+@media (max-width: 760px) {
+  .hero { grid-template-columns: minmax(0, 1fr); padding-block: 32px 28px; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <span class="name">mini-redis</span>
+    <nav aria-label="Page">
+      <a href="#try">Commands to try</a>
+      <a href="#how">How it works</a>
+      <a href="https://github.com/X-Rachit-X/mini-Redis">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <div>
+      <h1>A Redis-compatible server, written from scratch in C++17.</h1>
+      <p>It speaks the real Redis protocol, so the official Redis tools work with it unchanged. Open the live terminal and try it: you'll be typing into my own client, talking to my own server, running on this machine.</p>
+      <div class="actions">
+        <a class="btn primary" href="/try/" target="_blank" rel="noopener">Open the live terminal</a>
+        <a class="btn ghost" href="https://github.com/X-Rachit-X/mini-Redis">Read the code</a>
+      </div>
+      <p class="access">The terminal asks for a login. User: <code>demo</code>. Password: ask me for it.</p>
+    </div>
+<pre class="term" aria-label="Example session"><span class="p">127.0.0.1:6379></span> ZADD board 300 carol 100 alice 200 bob
+<span class="o">(integer) 3</span>
+<span class="p">127.0.0.1:6379></span> ZRANGE board 0 -1 WITHSCORES
+<span class="o">1) "alice"
+2) "100"
+3) "bob"
+4) "200"
+5) "carol"
+6) "300"</span>
+<span class="p">127.0.0.1:6379></span> SET otp 4821 EX 10
+<span class="o">OK</span>
+<span class="p">127.0.0.1:6379></span> TTL otp
+<span class="o">(integer) 10</span></pre>
+  </div>
+
+  <section id="try">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Commands to try</h2>
+        <p>Copy a line, paste it into the terminal (Ctrl+Shift+V, or right-click → Paste), press Enter. Type <code>help</code> there for more.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <h3>Store and read a value</h3>
+          <div class="cmd"><code>SET greeting "hello world"</code><button type="button">Copy</button></div>
+          <div class="cmd"><code>GET greeting</code><button type="button">Copy</button></div>
+          <span class="expect">→ OK, then "hello world"</span>
+        </div>
+        <div class="step">
+          <h3>Count things</h3>
+          <div class="cmd"><code>INCR visits</code><button type="button">Copy</button></div>
+          <p>Run it a few times. Every command runs on one thread, one after another, so no update is ever lost, even with many visitors at once.</p>
+        </div>
+        <div class="step">
+          <h3>Use a list as a queue</h3>
+          <div class="cmd"><code>RPUSH jobs build test deploy</code><button type="button">Copy</button></div>
+          <div class="cmd"><code>LPOP jobs</code><button type="button">Copy</button></div>
+          <div class="cmd"><code>LRANGE jobs 0 -1</code><button type="button">Copy</button></div>
+          <span class="expect">→ (integer) 3, "build", then the two left</span>
+        </div>
+        <div class="step">
+          <h3>Store an object as a hash</h3>
+          <div class="cmd"><code>HSET user:1 name Ada lang C++</code><button type="button">Copy</button></div>
+          <div class="cmd"><code>HGETALL user:1</code><button type="button">Copy</button></div>
+          <span class="expect">→ field, value, field, value</span>
+        </div>
+        <div class="step">
+          <h3>Build a leaderboard</h3>
+          <div class="cmd"><code>ZADD board 300 carol 100 alice 200 bob</code><button type="button">Copy</button></div>
+          <div class="cmd"><code>ZRANGE board 0 -1 WITHSCORES</code><button type="button">Copy</button></div>
+          <div class="cmd"><code>ZRANK board carol</code><button type="button">Copy</button></div>
+          <p>Sorted by score. Behind it is a skip list that finds a member's rank without walking the whole set.</p>
+        </div>
+        <div class="step">
+          <h3>Make a key expire</h3>
+          <div class="cmd"><code>SET otp 4821 EX 10</code><button type="button">Copy</button></div>
+          <div class="cmd"><code>TTL otp</code><button type="button">Copy</button></div>
+          <div class="cmd"><code>GET otp</code><button type="button">Copy</button></div>
+          <span class="expect">→ wait 10 seconds before the GET: (nil)</span>
+        </div>
+        <div class="step">
+          <h3>Use the wrong type</h3>
+          <div class="cmd"><code>GET jobs</code><button type="button">Copy</button></div>
+          <p>Every key holds exactly one type, so this gives the same <code>WRONGTYPE</code> error real Redis does.</p>
+        </div>
+      </div>
+      <p class="note">Everyone who opens the terminal shares one database, so you may see other visitors' keys, and they may change yours. Please don't store anything personal.</p>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>What's under the hood</h2>
+        <p>The full design, tests and benchmarks are documented in the repository.</p>
+      </div>
+      <div class="under">
+        <div><h3>One thread, no locks</h3><p>An <code>epoll</code> event loop serves every client from a single thread, the same model Redis uses. Every command is atomic.</p></div>
+        <div><h3>A streaming protocol parser</h3><p>Handles commands split across network packets and many commands sent at once (pipelining).</p></div>
+        <div><h3>Skip-list sorted sets</h3><p>Each link stores how many nodes it skips, so rank and range queries take O(log n).</p></div>
+        <div><h3>Crash-safe persistence</h3><p>An append-only log, replayed on startup. A half-written last entry is repaired, and compaction swaps files atomically.</p></div>
+        <div><h3>Measured, not assumed</h3><p>Benchmarked against real Redis with <code>redis-benchmark</code>. Memory per key cut from 5 KB to 175 B after measuring it.</p></div>
+        <div><h3>Tested</h3><p>Unit tests, randomized tests and end-to-end tests, all run under AddressSanitizer in CI.</p></div>
+      </div>
+
+      <h3 style="margin:32px 0 12px; font-size:1.1rem">How this page reaches you</h3>
+      <div class="path" role="img" aria-label="Your browser connects over HTTPS to Caddy. Caddy serves this page, and passes /try/ to ttyd, which runs mini-redis-cli, which talks to mini-redis-server.">
+        <span class="box">your browser</span><span class="arr">─HTTPS→</span>
+        <span class="box">Caddy<small>this page · certificate · login</small></span><span class="arr">─/try/→</span>
+        <span class="box">ttyd<small>terminal in the browser</small></span><span class="arr">→</span>
+        <span class="box">mini-redis-cli<small>my client</small></span><span class="arr">─TCP→</span>
+        <span class="box">mini-redis-server<small>my server</small></span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Built by <a href="https://github.com/X-Rachit-X">X-Rachit-X</a></span>
+    <a href="https://github.com/X-Rachit-X/mini-Redis">github.com/X-Rachit-X/mini-Redis</a>
+  </div>
+</footer>
+
+<script>
+// Copy buttons: copy the command next to the button.
+document.querySelectorAll(".cmd button").forEach(function (button) {
+  button.addEventListener("click", function () {
+    var code = button.parentElement.querySelector("code");
+    var text = code.textContent;
+    function done() {
+      button.textContent = "Copied";
+      setTimeout(function () { button.textContent = "Copy"; }, 1200);
+    }
+    function selectInstead() {
+      var range = document.createRange();
+      range.selectNodeContents(code);
+      var selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      button.textContent = "Press Ctrl+C";
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, selectInstead);
+    } else {
+      selectInstead();
+    }
+  });
+});
+</script>
+</body>
+</html>

@@ -127,19 +127,22 @@ The interview presentation (`docs/interview/index.html`) has the full script for
 
 ## 6. A public browser demo: the CLI in a web page
 
-The goal: you send someone a link, they open it, log in, and type Redis commands into **your real `mini-redis-cli`**, running against **your real server**, in their browser.
+The goal: you send someone a link. They land on a page that explains the project and lists commands to try. One click opens a terminal (after a password) where they type into **your real `mini-redis-cli`**, running against **your real server**.
 
 ```
-browser ──HTTPS──▶ Caddy :443 ──▶ ttyd 127.0.0.1:7681 ──▶ mini-redis-cli ──▶ mini-redis-server 127.0.0.1:6379
-          password    (certificate,      (streams a terminal       (one per visitor)
-                       password)          over a WebSocket)
+                         ┌─ /        → landing page (public)       /var/www/mini-redis/index.html
+browser ──HTTPS──▶ Caddy ┤
+                         └─ /try/... → password → ttyd 127.0.0.1:7681 → mini-redis-cli → mini-redis-server 127.0.0.1:6379
 ```
 
+- **Caddy** is the web server facing the internet. It gets a free HTTPS certificate automatically, serves the landing page, and puts a password in front of the terminal. [Layer 11](11-caddy.md) explains it in full.
 - **ttyd** runs a terminal program and shows it in a web page. We give it `mini-redis-cli`, **not a shell**, so visitors can only send Redis commands. They can't run anything else on your machine.
-- **Caddy** is a web server that gets a free HTTPS certificate automatically and adds a password.
+- **The landing page** (`deploy/site/index.html`) is a single static HTML file: what the project is, commands to try with copy buttons, and how it works.
 - Only ports 22 (SSH), 80 and 443 are open to the internet. The Redis port (6379) and ttyd (7681) stay on localhost.
 
-What you need: a cloud VM (free tiers work), about 45 minutes, and no domain name (we use `sslip.io`, explained in step 5).
+> These steps haven't been run end to end yet. Do them once on your VM, and use step 7's checks and the troubleshooting table if something doesn't match.
+
+What you need: a cloud VM (free tiers work), about 45 minutes, and no domain name (we use `sslip.io`, explained in step 6).
 
 ### Step 1. Create the VM
 
@@ -207,17 +210,29 @@ If `-W` isn't listed, your ttyd is older and writable by default: delete ` -W` f
 sudo cp deploy/mini-redis-web.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now mini-redis-web
-curl -s http://127.0.0.1:7681 | head -c 80; echo   # some HTML → ttyd is serving
+curl -s http://127.0.0.1:7681/try/ | head -c 80; echo   # some HTML → ttyd is serving
 ```
 
 What the service runs (see the comments in `deploy/mini-redis-web.service`):
-`ttyd -i 127.0.0.1 -p 7681 -W -m 10 ... /usr/local/bin/mini-redis-cli`
+`ttyd -i 127.0.0.1 -p 7681 -W -m 10 -b /try ... /usr/local/bin/mini-redis-cli`
 - `-i 127.0.0.1`: only programs on the VM (Caddy) can reach it.
 - `-W`: visitors can type.
 - `-m 10`: at most 10 people at once.
+- `-b /try`: the terminal lives at `/try/` on the website, so ttyd must expect that prefix on every URL (its page, its script, its WebSocket).
 - It runs as the `miniredis` user, which has no login shell and no rights outside its data folder.
 
-### Step 5. HTTPS and a password with Caddy
+### Step 5. Install the landing page
+
+The page is one HTML file. Caddy will serve it from `/var/www/mini-redis`, the conventional place for website files:
+
+```bash
+sudo mkdir -p /var/www/mini-redis
+sudo cp deploy/site/index.html /var/www/mini-redis/
+```
+
+Optional: edit `deploy/site/index.html` first. The line *"User: demo. Password: ask me for it."* is where you decide whether to publish the password or share it on request.
+
+### Step 6. HTTPS, the password and routing with Caddy
 
 Install Caddy from its official repository (Ubuntu's own package is old):
 
@@ -249,9 +264,26 @@ sudo systemctl reload caddy
 
 Caddy now requests a certificate from Let's Encrypt. That takes a few seconds and needs ports 80 and 443 open (step 1).
 
-### Step 6. Try it
+What the Caddyfile does, in short: `/` serves the landing page to anyone; `/try` redirects to `/try/`; anything under `/try/` asks for the password, then goes to ttyd. [Layer 11](11-caddy.md) goes through it line by line.
 
-Open `https://203-0-113-10.sslip.io` (with your IP). Log in as user **demo** with your password. You should see:
+### Step 7. Check every piece
+
+Run these **on the VM** (replace the host name and password). Each line says what you should see:
+
+```bash
+H=https://203-0-113-10.sslip.io
+curl -s -o /dev/null -w '%{http_code}\n' $H/                              # 200  landing page
+curl -s $H/ | grep -o '<title>[^<]*'                                      # <title>mini-redis
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' $H/try           # 308 .../try/
+curl -s -o /dev/null -w '%{http_code}\n' $H/try/                          # 401  password required
+curl -s -o /dev/null -w '%{http_code}\n' -u demo:WRONG $H/try/            # 401  wrong password refused
+curl -s -o /dev/null -w '%{http_code}\n' -u demo:YOURPASS $H/try/         # 200  terminal page
+curl -s -u demo:YOURPASS $H/try/token                                     # {"token": ""}  ttyd answers under /try
+curl -s -o /dev/null -w '%{http_code}\n' http://203-0-113-10.sslip.io/    # 308  plain HTTP is redirected to HTTPS
+sudo ss -ltnp | grep -E ':(6379|7681|80|443) '                            # 6379 and 7681 on 127.0.0.1 only
+```
+
+Then in a browser: open `https://203-0-113-10.sslip.io`, click **Open the live terminal**, log in as **demo**, and type:
 
 ```
 127.0.0.1:6379> PING
@@ -260,9 +292,9 @@ PONG
 (integer) 3
 ```
 
-Type `help` for examples. `quit` ends the session; reload the page to start a new one.
+Try a copy button on the landing page and paste into the terminal. Type `help` for examples. `quit` ends the session; reload the page to start a new one.
 
-### Step 7. Share it
+### Step 8. Share it
 
 - **Who gets the password:** you choose. Put the link and login on your resume or in the README for anyone to try, or send them only to interviewers. Visitors share one database and can see and delete each other's keys. That's fine for a demo, but don't store anything real.
 - **Add it to the README**, e.g. "Live demo: https://203-0-113-10.sslip.io (user `demo`, password on request)".
@@ -276,8 +308,11 @@ Type `help` for examples. `quit` ends the session; reload the page to start a ne
 | Wipe all demo data | `mini-redis-cli FLUSHALL` |
 | Compact the log file | `mini-redis-cli REWRITEAOF` |
 | Deploy a new version | `cd ~/mini-Redis && git pull && make && make test && sudo cp bin/mini-redis-* /usr/local/bin/ && sudo systemctl restart mini-redis mini-redis-web` |
+| Update the landing page | edit `deploy/site/index.html`, then `sudo cp deploy/site/index.html /var/www/mini-redis/` (no restart needed) |
 | Change the password | `caddy hash-password`, edit `/etc/caddy/Caddyfile`, `sudo systemctl reload caddy` |
-| Take the demo offline | `sudo systemctl stop mini-redis-web` (or stop the VM in the provider's console) |
+| Caddy's logs | `journalctl -u caddy -f` |
+| Take the terminal offline | `sudo systemctl stop mini-redis-web`. The landing page stays up; its button then shows an error. |
+| Take everything offline | stop the VM in the provider's console |
 
 ### Troubleshooting
 
@@ -285,7 +320,11 @@ Type `help` for examples. `quit` ends the session; reload the page to start a ne
 |---|---|
 | Browser can't connect at all | Port 80/443 closed. Check the provider's firewall (step 1), and on Oracle the iptables step. |
 | Certificate / "not secure" error | Caddy couldn't get a certificate. Check `journalctl -u caddy`. The host name must match your IP exactly, and port 80 must be open. |
-| Login works, then a blank page | ttyd isn't running: `systemctl status mini-redis-web`. Check the `-W` note in step 4. |
+| Landing page shows "404" or is empty | The file isn't where Caddy looks: `ls -l /var/www/mini-redis/index.html` (step 5). |
+| Login works, then "502 Bad Gateway" | ttyd isn't running: `systemctl status mini-redis-web`. Check the `-W` note in step 4. |
+| Login works, then a blank or broken page | ttyd isn't using the `/try` prefix. Check that `-b /try` is in `/etc/systemd/system/mini-redis-web.service`, then `sudo systemctl daemon-reload && sudo systemctl restart mini-redis-web`. |
+| Terminal draws, but nothing you type appears | ttyd is read-only: add `-W` (step 4). |
+| `caddy validate` fails | Usually a typo in the host name or a hash pasted incompletely. The error names the line. `caddy fmt --overwrite /etc/caddy/Caddyfile` also fixes indentation. |
 | Terminal opens, says "Could not connect to 127.0.0.1:6379" | The server is down: `systemctl status mini-redis`, then `journalctl -u mini-redis`. |
 | Server keeps restarting | It hit `MemoryMax`, or the AOF is corrupt. Check `journalctl -u mini-redis`. To start clean: `sudo systemctl stop mini-redis && sudo rm /var/lib/mini-redis/appendonly.aof && sudo systemctl start mini-redis`. |
 

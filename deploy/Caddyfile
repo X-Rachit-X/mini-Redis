@@ -1,5 +1,7 @@
-# Caddy: HTTPS (automatic, free certificate) + password in front of ttyd.
+# Caddy: serves the landing page, and the live terminal at /try/ behind a
+# password. Explained line by line in docs/11-caddy.md.
 #
+# Before using it:
 # 1. Replace 203-0-113-10.sslip.io with your VM's public IP, dots replaced by
 #    dashes (sslip.io turns that name into your IP, so you need no domain).
 #    If you own a domain, use it instead, e.g. redis-demo.yourname.dev
@@ -7,8 +9,23 @@
 #    (the user name here is "demo")
 
 203-0-113-10.sslip.io {
-	basic_auth {
-		demo $2a$14$REPLACE_WITH_OUTPUT_OF_caddy_hash-password
+	# Compress text responses (HTML, JS) for faster loading.
+	encode zstd gzip
+
+	# "/try" without the slash: send the browser to "/try/".
+	redir /try /try/ 308
+
+	# The live terminal: password first, then hand over to ttyd.
+	handle /try/* {
+		basic_auth {
+			demo $2a$14$REPLACE_WITH_OUTPUT_OF_caddy_hash-password
+		}
+		reverse_proxy 127.0.0.1:7681
 	}
-	reverse_proxy 127.0.0.1:7681
+
+	# Everything else: the public landing page.
+	handle {
+		root * /var/www/mini-redis
+		file_server
+	}
 }

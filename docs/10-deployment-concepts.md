@@ -354,36 +354,20 @@ That's why ports **80 and 443 must be open**: Let's Encrypt has to reach your se
 A **reverse proxy** is a server that sits in front of your application, receives every request from the internet, and forwards it to the application behind it.
 
 ```
-internet ──▶ Caddy (:443, public) ──▶ ttyd (127.0.0.1:7681, private)
+                                ┌─ /        → landing page (a file on disk)
+internet ──▶ Caddy (:443) ──────┤
+                                └─ /try/... → ttyd (127.0.0.1:7681, private)
 ```
 
 Why not let browsers talk to ttyd directly?
 - **One public entry point.** Only Caddy faces the internet. Everything else stays on localhost, which is easy to secure and to change.
 - **TLS in one place.** Caddy handles certificates and encryption ("TLS termination"), so ttyd doesn't need to know anything about them.
 - **Access control.** Caddy checks the password before a request reaches ttyd.
-- **Flexibility.** Later, Caddy could serve a landing page at `/` and the terminal at `/try`, or several apps on one machine.
+- **Routing.** One site serves different things at different paths: the public landing page at `/`, the password-protected terminal at `/try/`.
 
 (A *forward* proxy acts for clients, such as a company proxy for its employees' browsing. A *reverse* proxy acts for servers.)
 
-Here is `deploy/Caddyfile`, line by line:
-
-```
-203-0-113-10.sslip.io {
-```
-"For requests to this host name..." The name also tells Caddy which certificate to obtain.
-
-```
-	basic_auth {
-		demo $2a$14$…
-	}
-```
-"...require the user `demo` with a password that matches this hash..." (section 15).
-
-```
-	reverse_proxy 127.0.0.1:7681
-}
-```
-"...and forward everything that gets through to ttyd." Caddy also redirects `http://` to `https://` automatically.
+In short, `deploy/Caddyfile` says: for this host name, compress responses; send `/try` to `/try/`; under `/try/`, require the password and forward to ttyd; everything else, serve files from `/var/www/mini-redis`. [Layer 11](11-caddy.md) explains Caddy and walks through that file line by line.
 
 ## 15. Passwords: HTTP Basic authentication
 
@@ -404,7 +388,7 @@ A terminal needs both directions at any time: keystrokes go up, and output comes
 
 A **WebSocket** starts as a normal HTTP request asking to "upgrade":
 ```
-GET /ws HTTP/1.1
+GET /try/ws HTTP/1.1
 Upgrade: websocket
 Connection: Upgrade
 ```
@@ -440,11 +424,12 @@ The flags in `deploy/mini-redis-web.service`:
 | `-p 7681` | port |
 | `-W` | writable: visitors can type (ttyd 1.7+ is read-only by default) |
 | `-m 10` | at most 10 sessions at once, which limits how many CLI processes a crowd can start |
+| `-b /try` | base path: the terminal lives at `/try/` on the site, so every URL ttyd serves (page, `/try/token`, `/try/ws`) carries that prefix ([Layer 11](11-caddy.md#5-our-caddyfile-line-by-line) explains why) |
 | `-t titleFixed=…`, `-t fontSize=16` | browser tab title and font size |
 
 ## 18. The full journey of one keystroke
 
-Someone types `GET name` and presses Enter in the browser:
+A visitor opens the landing page (Caddy serves it as a file), clicks **Open the live terminal**, logs in, and the browser opens a WebSocket to `/try/ws`. Now they type `GET name` and press Enter:
 
 ```
  Browser                Caddy                 ttyd              mini-redis-cli         mini-redis-server
@@ -463,7 +448,7 @@ Someone types `GET name` and presses Enter in the browser:
 
 1. **xterm.js** turns each keystroke into a WebSocket message.
 2. It travels over **TLS** to the VM's port 443. DNS (sslip.io) turned the name into the IP before the connection was made.
-3. **Caddy** decrypts it. The WebSocket was only allowed to open after the password check succeeded. Caddy then forwards the bytes to `127.0.0.1:7681`.
+3. **Caddy** decrypts it. The path `/try/ws` matched the terminal route, and the WebSocket was only allowed to open after the password check succeeded. Caddy forwards the bytes to `127.0.0.1:7681`.
 4. **ttyd** writes them into that visitor's **PTY**.
 5. **mini-redis-cli** reads the line (`std::getline`), splits it (`split_args`), encodes it as RESP (`encode_command`), and sends it over TCP to `127.0.0.1:6379`.
 6. **mini-redis-server**'s `epoll_wait` wakes up. The server reads into the connection's input buffer, parses, runs `GET`, and writes `$5\r\nAlice\r\n`.

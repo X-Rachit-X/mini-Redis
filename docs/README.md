@@ -21,6 +21,7 @@ Everything you need to understand, explain and defend this project, from "what i
 | 8 | [Reference](8-reference.md) | all 53 commands, AOF translation rules, options, limits, error messages, glossary | to look something up |
 | 9 | [Running and deploying](9-deploy.md) | the commands: local, Docker, systemd on a VM, SSH tunnel, browser demo with ttyd + Caddy | to run it anywhere but your laptop |
 | 10 | [Deployment concepts](10-deployment-concepts.md) | the why behind layer 9, from zero: servers, IPs, ports, firewalls, SSH, systemd, logs, cgroups, DNS, HTTPS, reverse proxies, WebSockets, PTYs, Docker, security, operations, scaling | before deploying, and before questions like "how would you deploy this?" |
+| 11 | [Caddy and the landing page](11-caddy.md) | what Caddy is, why it was chosen, how it runs, the Caddyfile line by line, where each URL goes, automatic HTTPS, the landing page, testing and debugging | when setting up or explaining the public demo |
 | ▶ | [Interview presentation](interview/index.html) | an interactive talk track: what to show, what to say, the hooks that invite deep dives, and the deep-dive answers | the night before and the hour before an interview |
 
 ## Paths by goal

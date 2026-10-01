@@ -142,6 +142,7 @@ The [`docs/`](docs/README.md) folder explains the project in layers. **Start wit
 8. [Reference](docs/8-reference.md): commands, AOF rules, limits, error messages, glossary.
 9. [Running and deploying](docs/9-deploy.md): local, Docker, systemd, SSH tunnel, a public browser demo, and what production would still need.
 10. [Deployment concepts](docs/10-deployment-concepts.md): everything behind layer 9 from zero, up to containers, security and scaling.
+11. [Caddy and the landing page](docs/11-caddy.md): the web server in front of the public demo, its config line by line, and the landing page in `deploy/site/`.
 
 **Interview presentation:** [docs/interview/index.html](docs/interview/index.html). Open it in a browser: an interactive talk track with what to show, what to say, and where the interviewer will dig.
 
