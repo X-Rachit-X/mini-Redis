@@ -1,0 +1,22 @@
+# systemd unit: serves mini-redis-cli in the browser with ttyd.
+# ttyd listens on localhost only; Caddy (deploy/Caddyfile) puts HTTPS and a
+# password in front of it. Steps: docs/9-deploy.md, section 6.
+[Unit]
+Description=mini-redis web terminal (ttyd)
+After=network.target mini-redis.service
+Requires=mini-redis.service
+
+[Service]
+Type=simple
+User=miniredis
+# -i 127.0.0.1   only Caddy can reach it
+# -W             let visitors type (ttyd is read-only by default)
+# -m 10          at most 10 browser sessions at once
+# Each visitor gets their own mini-redis-cli process. It is NOT a shell:
+# visitors can only send Redis commands.
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 7681 -W -m 10 -t titleFixed=mini-redis -t fontSize=16 /usr/local/bin/mini-redis-cli
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+# Caddy: HTTPS (automatic, free certificate) + password in front of ttyd.
+#
+# 1. Replace 203-0-113-10.sslip.io with your VM's public IP, dots replaced by
+#    dashes (sslip.io turns that name into your IP, so you need no domain).
+#    If you own a domain, use it instead, e.g. redis-demo.yourname.dev
+# 2. Replace the hash with the output of:  caddy hash-password
+#    (the user name here is "demo")
+
+203-0-113-10.sslip.io {
+	basic_auth {
+		demo $2a$14$REPLACE_WITH_OUTPUT_OF_caddy_hash-password
+	}
+	reverse_proxy 127.0.0.1:7681
+}

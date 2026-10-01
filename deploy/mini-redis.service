@@ -11,6 +11,10 @@ WorkingDirectory=/var/lib/mini-redis
 ExecStart=/usr/local/bin/mini-redis-server --bind 127.0.0.1 --port 6379 --aof-file /var/lib/mini-redis/appendonly.aof
 # SIGTERM triggers our graceful shutdown (flush + fsync the AOF).
 KillSignal=SIGTERM
+# mini-redis has no maxmemory setting yet, so let the kernel cap it instead.
+# Over this limit the service is killed (and restarted) rather than the VM
+# running out of memory. Adjust to your machine.
+MemoryMax=256M
 Restart=on-failure
 RestartSec=2
 
