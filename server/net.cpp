@@ -1,5 +1,6 @@
 #include "net.h"
 
+#include <arpa/inet.h>
 #include <cstdio>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -18,7 +19,16 @@ void set_tcp_nodelay(int fd) {
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 }
 
-int create_listen_socket(int port) {
+int create_listen_socket(const std::string& bind_address, int port) {
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    // inet_pton turns text like "127.0.0.1" into the 4-byte binary address.
+    if (inet_pton(AF_INET, bind_address.c_str(), &addr.sin_addr) != 1) {
+        fprintf(stderr, "Invalid bind address: %s\n", bind_address.c_str());
+        return -1;
+    }
+
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         perror("socket");
@@ -29,11 +39,6 @@ int create_listen_socket(int port) {
     // (otherwise bind() fails for ~60s while old connections are in TIME_WAIT).
     int yes = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         perror("bind");

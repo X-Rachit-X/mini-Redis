@@ -13,6 +13,8 @@ void print_usage() {
     printf(
         "Usage: mini-redis-server [options]\n"
         "  --port <n>                      TCP port to listen on (default 6379)\n"
+        "  --bind <ip>                     address to listen on (default 127.0.0.1,\n"
+        "                                  use 0.0.0.0 for all interfaces; there is no password)\n"
         "  --aof-file <path>               append-only file (default appendonly.aof)\n"
         "  --appendfsync always|everysec|no  when to fsync the AOF (default everysec)\n"
         "  --no-aof                        keep data in memory only\n"
@@ -28,6 +30,8 @@ bool parse_args(int argc, char* argv[], Config& config) {
         if (arg == "--port" && has_value) {
             config.port = std::atoi(argv[++i]);
             if (config.port <= 0 || config.port > 65535) return false;
+        } else if (arg == "--bind" && has_value) {
+            config.bind_address = argv[++i];
         } else if (arg == "--aof-file" && has_value) {
             config.aof_path = argv[++i];
         } else if (arg == "--appendfsync" && has_value) {

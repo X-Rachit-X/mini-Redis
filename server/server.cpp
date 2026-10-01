@@ -61,7 +61,7 @@ int Server::run() {
     }
 
     // 2. Open the listening socket and register it with epoll.
-    listen_fd_ = create_listen_socket(config_.port);
+    listen_fd_ = create_listen_socket(config_.bind_address, config_.port);
     if (listen_fd_ < 0) return 1;
 
     epoll_fd_ = epoll_create1(0);
@@ -74,7 +74,7 @@ int Server::run() {
     event.data.fd = listen_fd_;
     epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, listen_fd_, &event);
 
-    printf("mini-redis listening on port %d (AOF %s)\n", config_.port,
+    printf("mini-redis listening on %s:%d (AOF %s)\n", config_.bind_address.c_str(), config_.port,
            config_.aof_enabled ? config_.aof_path.c_str() : "disabled");
 
     // 3. Serve until Ctrl+C / SIGTERM.
