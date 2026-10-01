@@ -266,6 +266,8 @@ caddy run --config Caddyfile.local                            # then open http:/
 | `handle_path /try/*` instead of `handle` | terminal page loads, then stays blank | use `handle`, and give ttyd `-b /try` |
 | ttyd started without `-b /try` | `/try/` returns 404 or a broken page | add `-b /try` to the service, `daemon-reload`, restart |
 | Password pasted in plain text instead of the hash | `caddy validate` error about the hash | run `caddy hash-password`, paste its output |
+| Placeholder hash left in place | `validate` says it's valid, but every password gets 401 | `grep REPLACE /etc/caddy/Caddyfile`, then paste a real hash |
+| Ubuntu's own Caddy package (2.6) instead of the official one | `unrecognized directive: basic_auth` | check `caddy version` (needs 2.8+), install from Caddy's repository |
 | Editing the Caddyfile in the repo but not copying it | changes have no effect | `sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy` |
 | `restart` after a bad edit | site goes down | use `reload`: an invalid config is rejected and the old one keeps running |
 
