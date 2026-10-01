@@ -1,0 +1,19 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sanitizers: [0, 1]  # 1 = AddressSanitizer + UndefinedBehaviorSanitizer
+    name: test (SAN=${{ matrix.sanitizers }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install redis-tools (for the redis-cli compatibility check)
+        run: sudo apt-get update && sudo apt-get install -y redis-tools
+      - name: Build
+        run: make SAN=${{ matrix.sanitizers }} -j"$(nproc)"
+      - name: Unit + end-to-end tests
+        run: make SAN=${{ matrix.sanitizers }} test
