@@ -6,6 +6,8 @@ Everything you need to understand, explain and defend this project, from "what i
 
 **New to the project?** Open the [learning path](0-learning-path.md). It tells you what to read, in what order, what to run, what to break on purpose, and how to check you've understood it.
 
+**Preparing for interviews?** Open the [interview preparation notes](12-interview-prep.md). They're the one file to revise from, and they link back to the other layers for depth.
+
 ## The layers
 
 | # | Document | What's in it | Read it when |
@@ -22,6 +24,7 @@ Everything you need to understand, explain and defend this project, from "what i
 | 9 | [Running and deploying](9-deploy.md) | the commands: local, Docker, systemd on a VM, SSH tunnel, browser demo with ttyd + Caddy | to run it anywhere but your laptop |
 | 10 | [Deployment concepts](10-deployment-concepts.md) | the why behind layer 9, from zero: servers, IPs, ports, firewalls, SSH, systemd, logs, cgroups, DNS, HTTPS, reverse proxies, WebSockets, PTYs, Docker, security, operations, scaling | before deploying, and before questions like "how would you deploy this?" |
 | 11 | [Caddy and the landing page](11-caddy.md) | what Caddy is, why it was chosen, how it runs, the Caddyfile line by line, where each URL goes, automatic HTTPS, the landing page, testing and debugging | when setting up or explaining the public demo |
+| 12 | [Interview preparation](12-interview-prep.md) | **your master revision notes**: overview, request flow, every feature (what / why / how / trade-off / follow-up), failures, speeches for 15 s to 10 min, 25 questions, a 2-week plan, a mastery tracker | from the first day of interview prep to the hour before |
 | ▶ | [Interview presentation](interview/index.html) | an interactive talk track: what to show, what to say, the hooks that invite deep dives, and the deep-dive answers | the night before and the hour before an interview |
 
 ## Paths by goal
